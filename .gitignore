@@ -8,10 +8,10 @@
 notebooks/
 ckpts/
 figs/
-scripts/
 logs/
 wandb/ 
 *idx
+*out
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
