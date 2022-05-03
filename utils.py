@@ -1,0 +1,429 @@
+import argparse
+import numpy as np
+import tqdm
+import timm
+import torch
+import torchvision
+import torchvision.transforms as transforms
+import torch.nn.functional as F
+from custom_stl import STL10
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+NUM_CLASSES_DICT = {
+    'cifar10':10,
+    'stl10':10,
+    'none':-1
+}
+
+norm_dict = {
+    'cifar10_mean':[0.485, 0.456, 0.406],
+    'cifar10_std': [0.228, 0.224, 0.225]
+}
+
+def get_oodloader(args,dataset):
+    normalize = transforms.Normalize(norm_dict[args.dataset+"_mean"], norm_dict[args.dataset + "_std"])
+    transform = transforms.Compose([transforms.Resize(224), transforms.ToTensor(),normalize])
+    if dataset.upper() == 'STL10':
+        ood_dataset = STL10(root="/p/lustre1/trivedi1/vision_data",
+            split='test',
+            download=True,
+            transform=transform)
+    else:
+        print("ERROR ERROR ERROR")
+        print("Not Implemented Yet. Exiting")
+        exit()
+    def wif(id):
+        uint64_seed = torch.initial_seed()
+        ss = np.random.SeedSequence([uint64_seed])
+        # More than 128 bits (4 32-bit words) would be overkill.
+        np.random.seed(ss.generate_state(4))
+
+    ood_loader = torch.utils.data.DataLoader(
+        ood_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        worker_init_fn=wif) 
+    return ood_loader
+
+def get_transform(dataset,SELECTED_AUG):
+    if dataset == 'cifar100':
+        num_classes = 100
+    elif dataset == 'cifar10':
+        num_classes = 10
+    elif dataset == 'imagenet1K':
+        num_classes = 1000
+    else:
+        print("***** ERROR ERROR ERROR ******")
+        print("Invalid Dataset Selected, Exiting")
+        exit()
+    hparams= {'translate_const': 100, 'img_mean': (124, 116, 104)}
+    normalize = transforms.Normalize(norm_dict[dataset+"_mean"], norm_dict[dataset + "_std"])
+    resize = transforms.Resize(size=224)
+    if SELECTED_AUG == 'cutout':
+        transform = timm.data.random_erasing.RandomErasing(probability=1.0, 
+            min_area=0.02, 
+            max_area=1/3, 
+            min_aspect=0.3, 
+            max_aspect=None,
+            mode='const', 
+            min_count=1, 
+            max_count=None, 
+            num_splits=0, 
+            device=DEVICE)
+    elif SELECTED_AUG == 'mixup':
+        #mixup active if mixup_alpha > 0
+        #cutmix active if cutmix_alpha > 0
+        transform = timm.data.mixup.Mixup(mixup_alpha=1., 
+            cutmix_alpha=0., 
+            cutmix_minmax=None, 
+            prob=1.0, 
+            switch_prob=0.0,
+            mode='batch', 
+            correct_lam=True, 
+            label_smoothing=0.1, 
+            num_classes=num_classes)
+    elif SELECTED_AUG == 'cutmix':
+        transform = timm.data.mixup.Mixup(mixup_alpha=0., 
+            cutmix_alpha=1., 
+            cutmix_minmax=None, 
+            prob=0.8, 
+            switch_prob=0.0,
+            mode='batch', 
+            correct_lam=True, 
+            label_smoothing=0.1, 
+            num_classes=num_classes)
+    elif SELECTED_AUG == 'autoaug':
+        #no searching code;
+        transform = timm.data.auto_augment.auto_augment_transform(config_str='original-mstd0.5',
+        hparams= hparams)
+    elif SELECTED_AUG == 'augmix':
+        transform = timm.data.auto_augment.augment_and_mix_transform(
+            config_str='augmix-m5-w4-d2',
+            hparams=hparams)
+    elif SELECTED_AUG == 'randaug':
+        transform = timm.data.auto_augment.rand_augment_transform( 
+            config_str='rand-m3-n2-mstd0.5',
+            hparams=hparams
+            )
+    elif SELECTED_AUG == 'base':
+        transform = transforms.Compose(
+            [transforms.RandomHorizontalFlip(),
+            transforms.RandomCrop(32, padding=4),resize, transforms.ToTensor(),normalize])
+    
+    elif SELECTED_AUG == 'test':
+        transform = transforms.Compose(
+            [transforms.Resize(224), transforms.ToTensor(),normalize])
+    elif SELECTED_AUG == 'pixmix':
+        print("Not Implemented yet!")
+
+    if SELECTED_AUG in ['randaug','augmix','autoaug']:
+       transform = transforms.Compose([resize, transform,transforms.ToTensor(),normalize]) 
+    return transform
+
+def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use_ft=False):
+    if train_aug not in ['mixup','cutmix','cutout']:
+        #initialize the augmentation directly in the dataset
+        if args.dataset == 'cifar10':
+            train_dataset = torchvision.datasets.CIFAR10(root="/p/lustre1/trivedi1/vision_data",
+                train=True,
+                transform=train_transform)
+        elif args.dataset == 'cifar100':
+            train_dataset = torchvision.datasets.CIFAR100(root="/p/lustre1/trivedi1/vision_data",
+                train=True,
+                transform=train_transform)
+        else:
+            print("***** ERROR ERROR ERROR ******")
+            print("Invalid Dataset Selected, Exiting")
+            exit()
+    else:
+        #augmentation will be applied in training loop! 
+        normalize = transforms.Compose([transforms.Resize(224),transforms.ToTensor(),
+            transforms.Normalize(norm_dict[args.dataset+'_mean'], norm_dict[args.dataset + "_std"]),
+            ])
+        if args.dataset == 'cifar10':
+            train_dataset = torchvision.datasets.CIFAR10(root="/p/lustre1/trivedi1/vision_data",
+                train=True,
+                transform=normalize)
+        elif args.dataset == 'cifar100':
+            train_dataset = torchvision.datasets.CIFAR100(root="/p/lustre1/trivedi1/vision_data",
+                train=True,
+                transform=normalize)
+
+    """
+    Create Test Dataloaders.
+    """
+    if args.dataset == 'cifar10':
+        test_dataset = torchvision.datasets.CIFAR10(root="/p/lustre1/trivedi1/vision_data",
+            train=False,
+            transform=test_transform) 
+        NUM_CLASSES=10
+    elif args.dataset == 'cifar100':
+        test_dataset = torchvision.datasets.CIFAR100(root="/p/lustre1/trivedi1/vision_data",
+            train=False,
+            transform=test_transform) 
+        NUM_CLASSES=100
+    else:
+        print("***** ERROR ERROR ERROR ******")
+        print("Invalid Dataset Selected, Exiting")
+        exit()
+        
+    print('=> Training Size: ', len(train_dataset))
+    print('=> Dataset: ', train_dataset)
+    print("=> Num Classes: ",NUM_CLASSES) 
+    
+    # Fix dataloader worker issue
+    # https://github.com/pytorch/pytorch/issues/5059
+    def wif(id):
+        uint64_seed = torch.initial_seed()
+        ss = np.random.SeedSequence([uint64_seed])
+        # More than 128 bits (4 32-bit words) would be overkill.
+        np.random.seed(ss.generate_state(4))
+
+    if use_ft:
+        batch_size = args.ft_batch_size
+    else:
+        batch_size = args.batch_size
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        worker_init_fn=wif)
+
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True)
+    return train_loader, test_loader
+
+def train(net, train_loader, optimizer, scheduler,transform=None,transform_name=None,protocol='lp'):
+    """Train for one epoch."""
+    if protocol in ['lp','lp+ft']:
+        #model needs to be eval mode!
+        net.eval()
+    else:
+        net.train()
+    loss_ema = 0.
+    if transform_name in ['cutmix','mixup']:
+        criterion = torch.nn.SoftTargetCrossEntropy()
+    else:
+        criterion = torch.nn.CrossEntropyLoss()
+    for _, (images, targets) in enumerate(train_loader):
+
+        optimizer.zero_grad()
+        images = images.to(DEVICE)
+        targets = targets.to(DEVICE)
+
+        #use cutmix or mixup
+        if transform:
+            if transform_name in ['cutmix','mixup']:
+                images, targets= transform(images,target=targets)
+            if transform_name == 'cutout':
+                images = transform(images)
+        logits = net(images)
+        loss = criterion(logits, targets)
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        loss_ema = loss_ema * 0.9 + float(loss) * 0.1
+    return loss_ema
+
+
+def test(net, test_loader, adv=None):
+    """Evaluate network on given dataset."""
+    net.eval()
+    total_loss = 0.
+    total_correct = 0
+    with torch.no_grad():
+        for images, targets in test_loader:
+            images, targets = images.cuda(), targets.cuda()
+            # adversarial
+            if adv:
+                images = adv(net, images, targets)
+            logits = net(images)
+            loss = F.cross_entropy(logits, targets)
+            pred = logits.data.max(1)[1]
+            total_loss += float(loss.data)
+            total_correct += pred.eq(targets.data).sum().item()
+    return np.round(total_loss / len(test_loader),5), np.round(total_correct / len(test_loader.dataset),5)
+
+def freeze_layers_for_lp(model):
+    for name, param in model.named_parameters():
+        if 'fc' not in name:
+            param.requires_grad = False
+    return model
+
+def unfreeze_layers_for_ft(model):
+    for _, param in model.named_parameters():
+        param.requires_grad = True 
+    return model
+
+def arg_parser():
+    parser = argparse.ArgumentParser(
+    description='Transfer Learning Experiments',
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument(
+        '--dataset',
+        type=str,
+        default='cifar10',
+        choices=['cifar10'])
+    
+    parser.add_argument(
+        '--eval_dataset',
+        type=str,
+        default='stl10',
+        choices=['stl10'])
+    
+    parser.add_argument(
+        '--arch',
+        type=str,
+        default='resnet50',
+        choices=['resnet50'])
+    
+    parser.add_argument(
+        '--protocol',
+        type=str,
+        default='lp',
+        choices=['lp', 'ft', 'lp+ft'])
+    parser.add_argument(
+        '--pretrained_ckpt',
+        type=str,
+        default='/p/lustre1/trivedi1/vision_data/moco_v2_800ep_pretrain.pth.tar'
+    )
+    """
+    Linear Probe Args
+    """
+    parser.add_argument(
+        '--train_aug',
+        type=str,
+        default='autoaug',
+        choices=['cutout','mixup','cutmix','autoaug','augmix','randaug','base','pixmix','test']
+    )
+    parser.add_argument(
+        '--test_aug',
+        type=str,
+        default='test'
+    )
+    
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=1
+    )
+    parser.add_argument(
+        '--epochs',
+        type=int,
+        default=20
+    )
+    
+    parser.add_argument(
+        '--batch_size',
+        type=int,
+        default=128
+    )
+    parser.add_argument(
+        '--num_workers',
+        type=int,
+        default=4
+    )
+    
+    parser.add_argument(
+        '--eval_batch_size',
+        type=int,
+        default=128
+    )
+    parser.add_argument(
+        '--learning-rate',
+        '-lr',
+        type=float,
+        default=0.1,
+        help='Initial learning rate.')
+    parser.add_argument('--momentum', type=float, default=0.9, help='Momentum.')
+    parser.add_argument(
+        '--decay',
+        '-wd',
+        type=float,
+        default=0.0005,
+        help='Weight decay (L2 penalty).')
+    parser.add_argument(
+        '--droprate', default=0.3, type=float, help='Dropout probability')
+    parser.add_argument(
+        '--save',
+        '-s',
+        type=str,
+        default='./ckpts',
+        help='Folder to save checkpoints.')
+    parser.add_argument(
+        '--resume',
+        '-r',
+        type=str,
+        default='',
+        help='Checkpoint path for resume / test.')
+    parser.add_argument('--evaluate', action='store_true', help='Eval only.')
+    parser.add_argument(
+        '--print-freq',
+        type=int,
+        default=50,
+        help='Training loss print frequency (batches).')
+    """
+    Finetuning args
+    """
+    parser.add_argument(
+        '--ft_train_aug',
+        type=str,
+        default='autoaug',
+        choices=['cutout','mixup','cutmix','autoaug','augmix','randaug','base','pixmix','test']
+    )
+    parser.add_argument(
+        '--ft_test_aug',
+        type=str,
+        default='test'
+    )
+    parser.add_argument(
+        '--ft_epochs',
+        type=int,
+        default=20
+    )
+    
+    parser.add_argument(
+        '--ft_batch_size',
+        type=int,
+        default=64
+    )
+
+    parser.add_argument(
+        '--ft_learning-rate',
+        '-ft_lr',
+        type=float,
+        default=0.1,
+        help='Initial learning rate.')
+    parser.add_argument('--ft_momentum', type=float, default=0.9, help='Momentum.')
+    parser.add_argument(
+        '--ft_decay',
+        '-ft_wd',
+        type=float,
+        default=0.0005,
+        help='Weight decay (L2 penalty).')
+    args = parser.parse_args()
+    return args 
+
+def load_moco_ckpt(model,args):
+    ckpt = torch.load(args.pretrained_ckpt)
+    new_keys = [(k, k.replace("module.encoder_q.","")) for k in list(ckpt['state_dict'].keys())]
+    for old_k, new_k in new_keys:
+        ckpt['state_dict'][new_k] = ckpt['state_dict'].pop(old_k)
+    incompatible, unexpected = model.load_state_dict(ckpt['state_dict'],strict=False)
+    print("Incompatible Keys: ", incompatible)
+    print("Unexpected Keys: ",unexpected)
+    return model
+
+class dotdict(dict):
+    """dot.notation access to dictionary attributes"""
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
