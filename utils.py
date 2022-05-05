@@ -6,7 +6,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 import torch.nn.functional as F
-from custom_stl import STL10
+from cifar10p1 import CIFAR10p1
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 NUM_CLASSES_DICT = {
@@ -20,14 +20,46 @@ norm_dict = {
     'cifar10_std': [0.228, 0.224, 0.225]
 }
 
+#https://github.com/AnanyaKumar/transfer_learning/blob/main/unlabeled_extrapolation/baseline_train.py
+def get_param_weights_counts(net, detach):
+    weight_dict = {}
+    count_dict = {}
+    for param in net.named_parameters():
+        name = param[0]
+        weights = param[1]
+        if detach:
+            weight_dict[name] = weights.detach().clone()
+        else:
+            weight_dict[name] = weights
+        count_dict[name] = np.prod(np.array(list(param[1].shape)))
+    return weight_dict, count_dict
+
+def get_l2_dist(weight_dict1, weight_dict2, ignore='.fc.'):
+    l2_dist = torch.tensor(0.0).cuda()
+    for key in weight_dict1:
+        if ignore not in key:
+            l2_dist += torch.sum(torch.square(weight_dict1[key] - weight_dict2[key]))
+    return l2_dist
+
 def get_oodloader(args,dataset):
     normalize = transforms.Normalize(norm_dict[args.dataset+"_mean"], norm_dict[args.dataset + "_std"])
     transform = transforms.Compose([transforms.Resize(224), transforms.ToTensor(),normalize])
     if dataset.upper() == 'STL10':
-        ood_dataset = STL10(root="/p/lustre1/trivedi1/vision_data",
+        ood_dataset = torchvision.datasets.STL10(root="/p/lustre1/trivedi1/vision_data",
             split='test',
-            download=True,
+            download=False,
             transform=transform)
+
+        stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
+        ood_dataset.labels = stl_to_cifar_indices[ood_dataset.labels]
+        ood_dataset = torch.utils.data.Subset(ood_dataset,np.where(ood_dataset.labels != -1)[0])
+    
+    elif dataset.upper() == "CIFAR10.1":
+        ood_dataset = CIFAR10p1(root="/p/lustre1/trivedi1/vision_data/CIFAR10.1/",
+            split='test',
+            verision='v6',
+            transform=transform)
+
     else:
         print("ERROR ERROR ERROR")
         print("Not Implemented Yet. Exiting")
@@ -40,7 +72,7 @@ def get_oodloader(args,dataset):
 
     ood_loader = torch.utils.data.DataLoader(
         ood_dataset,
-        batch_size=args.batch_size,
+        batch_size=64,
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=True,
@@ -168,11 +200,7 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
         exit()
-        
-    print('=> Training Size: ', len(train_dataset))
-    print('=> Dataset: ', train_dataset)
-    print("=> Num Classes: ",NUM_CLASSES) 
-    
+         
     # Fix dataloader worker issue
     # https://github.com/pytorch/pytorch/issues/5059
     def wif(id):
@@ -201,7 +229,7 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
         pin_memory=True)
     return train_loader, test_loader
 
-def train(net, train_loader, optimizer, scheduler,transform=None,transform_name=None,protocol='lp'):
+def train(net, train_loader, optimizer, scheduler,transform=None,transform_name=None,protocol='lp',l2sp=False):
     """Train for one epoch."""
     if protocol in ['lp','lp+ft']:
         #model needs to be eval mode!
@@ -226,7 +254,7 @@ def train(net, train_loader, optimizer, scheduler,transform=None,transform_name=
             if transform_name == 'cutout':
                 images = transform(images)
         logits = net(images)
-        loss = criterion(logits, targets)
+        loss = criterion(logits, targets) 
         loss.backward()
         optimizer.step()
         scheduler.step()
@@ -259,7 +287,7 @@ def freeze_layers_for_lp(model):
     return model
 
 def unfreeze_layers_for_ft(model):
-    for _, param in model.named_parameters():
+    for param in model.parameters():
         param.requires_grad = True 
     return model
 
@@ -277,7 +305,7 @@ def arg_parser():
         '--eval_dataset',
         type=str,
         default='stl10',
-        choices=['stl10'])
+        choices=['stl10','cifar10.1'])
     
     parser.add_argument(
         '--arch',
@@ -402,6 +430,18 @@ def arg_parser():
         type=float,
         default=0.1,
         help='Initial learning rate.')
+    parser.add_argument(
+        '--l2sp_weight',
+        '-l2',
+        type=float,
+        default=-1,
+        help='Keep LP close to self.')
+    
+    parser.add_argument(
+        '--resume_lp_ckpt',
+        type=str,
+        default="None",
+        help='Optional ckpt to begin LP + FT from.')
     parser.add_argument('--ft_momentum', type=float, default=0.9, help='Momentum.')
     parser.add_argument(
         '--ft_decay',
@@ -427,3 +467,31 @@ class dotdict(dict):
     __getattr__ = dict.get
     __setattr__ = dict.__setitem__
     __delattr__ = dict.__delitem__
+
+#https://github.com/PatrickHua/SimSiam/blob/main/optimizers/lr_scheduler.py
+class LR_Scheduler(object):
+    def __init__(self, optimizer, warmup_epochs, warmup_lr, num_epochs, base_lr, final_lr, iter_per_epoch, constant_predictor_lr=False):
+        self.base_lr = base_lr
+        self.constant_predictor_lr = constant_predictor_lr
+        warmup_iter = iter_per_epoch * warmup_epochs
+        warmup_lr_schedule = np.linspace(warmup_lr, base_lr, warmup_iter)
+        decay_iter = iter_per_epoch * (num_epochs - warmup_epochs)
+        cosine_lr_schedule = final_lr+0.5*(base_lr-final_lr)*(1+np.cos(np.pi*np.arange(decay_iter)/decay_iter))
+        
+        self.lr_schedule = np.concatenate((warmup_lr_schedule, cosine_lr_schedule))
+        self.optimizer = optimizer
+        self.iter = 0
+        self.current_lr = 0
+    def step(self):
+        for param_group in self.optimizer.param_groups:
+
+            if self.constant_predictor_lr and param_group['name'] == 'predictor':
+                param_group['lr'] = self.base_lr
+            else:
+                lr = param_group['lr'] = self.lr_schedule[self.iter]
+        
+        self.iter += 1
+        self.current_lr = lr
+        return lr
+    def get_lr(self):
+        return self.current_lr

@@ -102,10 +102,15 @@ def get_oodloader(args,dataset):
     normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225])
     transform = transforms.Compose([transforms.Resize(224), transforms.ToTensor(),normalize])
     if dataset.upper() == 'STL10':
-        ood_dataset = STL10(root="/p/lustre1/trivedi1/vision_data",
+
+        ood_dataset = torchvision.datasets.STL10(root="/p/lustre1/trivedi1/vision_data",
             split='test',
-            download=True,
+            download=False,
             transform=transform)
+
+        stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
+        ood_dataset.labels = stl_to_cifar_indices[ood_dataset.labels]
+        ood_dataset = torch.utils.data.Subset(ood_dataset,np.where(ood_dataset.labels != -1)[0])
     else:
         print("ERROR ERROR ERROR")
         print("Not Implemented Yet. Exiting")
@@ -284,7 +289,9 @@ def main():
     ood_loader = get_oodloader(args,dataset='stl10')
     _, n1_ood_test_acc =  test(net=net_1,test_loader=ood_loader)
     _, n2_ood_test_acc =  test(net=net_2,test_loader=ood_loader)
+    print("=> M1: ",args.model_1_ckpt)
     print("M1,OOD Acc.: ",n1_ood_test_acc)
+    print("=> M2: ",args.model_2_ckpt)
     print("M2,OOD Acc.: ",n2_ood_test_acc)
     _, n1_d1_test_acc =  test(net=net_1,test_loader=d1_test_loader)
     _, n1_d1_train_acc =  test(net=net_1,test_loader=d1_train_loader)
@@ -298,15 +305,38 @@ def main():
             _, n2_d2_test_acc =  test(net=net_2,test_loader=d2_test_loader)
             _, n2_d2_train_acc =  test(net=net_2,test_loader=d2_train_loader)
     print("********** Accs *************") 
-    print("M1: ",n1_d1_train_acc,n1_d1_test_acc,n1_d2_train_acc,n1_d2_test_acc)
-    print("M2: ",n2_d1_train_acc,n2_d1_test_acc,n2_d2_train_acc,n2_d2_test_acc)
+    print("M1: ",n1_d1_train_acc,n1_d1_test_acc,n1_d2_train_acc,n1_d2_test_acc,n1_ood_test_acc)
+    print("M2: ",n2_d1_train_acc,n2_d1_test_acc,n2_d2_train_acc,n2_d2_test_acc,n2_ood_test_acc)
     print("*****************************") 
     """
     By correctly choosing which datasets to use,
     we can extract the appropriate CKA scores for
     model vs. model, ood vs id, protocol vs. protocol.
     """
-    layer_names = ['module.layer1']#'module.layer2','module.layer3','module.layer4','module.layer5','module.layer6']
+    layer_names = ['module.layer1.0.bn3', #1 
+        'module.layer1.1.bn3', #2 
+        'module.layer1.2.bn3', #3
+        'module.layer2.0.bn3', #4 
+        'module.layer2.1.bn3', #5
+        'module.layer2.2.bn3', #6 
+        'module.layer3.0.bn3', #7
+        'module.layer3.1.bn3', #8
+        'module.layer3.2.bn3', #9
+        'module.layer4.0.bn3', #10
+        'module.layer4.1.bn3', #11
+        'module.layer4.2.bn3' #12
+        ]
+    cka = CKA(net_1, net_2,
+            model1_name=m1_name,   
+            model2_name=m2_name,
+            model1_layers=layer_names, 
+            model2_layers=layer_names,
+            device='cuda:0')
+    cka.compare(dataloader1=d1_test_loader) 
+    test_results = cka.export()  
+    
+    cka.compare(dataloader1=d1_train_loader) 
+    train_results = cka.export()  
     cka = CKA(net_1, net_2,
             model1_name=m1_name,   
             model2_name=m2_name,   
@@ -314,27 +344,28 @@ def main():
             model2_layers=layer_names,
             device='cuda:0')
 
+    use_train = False
     if args.dataset_2.lower() == "none":
         cka.compare(dataloader1=d1_test_loader) 
         test_results = cka.export()  
-        cka.compare(dataloader1=d1_train_loader) 
-        train_results = cka.export() 
-        # cka.compare(dataloader1=d1_test_loader) 
-        # test_results = cka.export()  
+        if use_train:
+            cka.compare(dataloader1=d1_train_loader) 
+            train_results = cka.export() 
     else:
-        cka.compare(dataloader1=d1_train_loader,dataloader2=d2_train_loader) 
-        train_results = cka.export() 
         
         cka.compare(dataloader1=d1_test_loader,dataloader2=d2_test_loader) # secondary dataloader is optional
-        test_results = cka.export()  
-   
-    print("********** Train ************") 
-    print(train_results)
-    print("*****************************") 
-    print()
+        test_results = cka.export() 
+        if use_train: 
+            cka.compare(dataloader1=d1_train_loader,dataloader2=d2_train_loader) 
+            train_results = cka.export() 
     print("********** Test ************") 
     print(test_results)
     print("*****************************")
+    print()
+    if use_train:
+        print("********** Train ************") 
+        print(train_results)
+        print("*****************************") 
 
 if __name__ == '__main__':
     main()
