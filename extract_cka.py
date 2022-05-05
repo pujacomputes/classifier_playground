@@ -328,17 +328,6 @@ def main():
         ]
     cka = CKA(net_1, net_2,
             model1_name=m1_name,   
-            model2_name=m2_name,
-            model1_layers=layer_names, 
-            model2_layers=layer_names,
-            device='cuda:0')
-    cka.compare(dataloader1=d1_test_loader) 
-    test_results = cka.export()  
-    
-    cka.compare(dataloader1=d1_train_loader) 
-    train_results = cka.export()  
-    cka = CKA(net_1, net_2,
-            model1_name=m1_name,   
             model2_name=m2_name,   
             model1_layers=layer_names, 
             model2_layers=layer_names,

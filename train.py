@@ -36,7 +36,7 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
     else:
         transform = None
     if train_aug in ['cutmix','mixup']:
-        criterion = torch.nn.SoftTargetCrossEntropy()
+        criterion = SoftTargetCrossEntropy()
     else:
         criterion = torch.nn.CrossEntropyLoss()
     for epoch in range(start_epoch, end_epoch):
