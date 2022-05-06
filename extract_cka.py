@@ -10,7 +10,7 @@ import torchvision
 import torchvision.transforms as transforms
 import numpy as np
 import torch.nn.functional as F
-from utils import *
+from utils import get_transform, NUM_CLASSES_DICT, test,norm_dict 
 import pdb 
 import random
 
@@ -22,7 +22,7 @@ def arg_parser():
         '--dataset_1',
         type=str,
         default='cifar10',
-        choices=['cifar10'])
+        choices=['cifar10','stl10','STL10'])
     
     parser.add_argument(
         '--dataset_2',
@@ -159,9 +159,18 @@ def get_dataloaders(args,dataset,train_aug, test_aug, train_transform,test_trans
             train_dataset = torchvision.datasets.CIFAR100(root="/p/lustre1/trivedi1/vision_data",
                 train=True,
                 transform=train_transform)
+        elif dataset == 'STL10' or dataset == 'stl10':
+            train_dataset = torchvision.datasets.STL10(root="/p/lustre1/trivedi1/vision_data",
+                split='train',
+                download=False,
+                transform=train_transform)
+
+            stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
+            train_dataset.labels = stl_to_cifar_indices[train_dataset.labels]
+            train_dataset = torch.utils.data.Subset(train_dataset,np.where(train_dataset.labels != -1)[0])
         else:
             print("***** ERROR ERROR ERROR ******")
-            print("Invalid Dataset Selected, Exiting")
+            print("=> Invalid Dataset Selected, Exiting")
             exit()
     else:
         #augmentation will be applied in training loop! 
@@ -176,6 +185,15 @@ def get_dataloaders(args,dataset,train_aug, test_aug, train_transform,test_trans
             train_dataset = torchvision.datasets.CIFAR100(root="/p/lustre1/trivedi1/vision_data",
                 train=True,
                 transform=normalize)
+        elif dataset == 'STL10' or dataset == 'stl10':
+            train_dataset = torchvision.datasets.STL10(root="/p/lustre1/trivedi1/vision_data",
+                split='train',
+                download=False,
+                transform=normalize)
+
+            stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
+            train_dataset.labels = stl_to_cifar_indices[train_dataset.labels]
+            train_dataset = torch.utils.data.Subset(train_dataset,np.where(train_dataset.labels != -1)[0])
 
     """
     Create Test Dataloaders.
@@ -190,9 +208,18 @@ def get_dataloaders(args,dataset,train_aug, test_aug, train_transform,test_trans
             train=False,
             transform=test_transform)
         NUM_CLASSES=100
+    elif dataset == 'STL10' or dataset == 'stl10':
+            test_dataset = torchvision.datasets.STL10(root="/p/lustre1/trivedi1/vision_data",
+                split='test',
+                download=False,
+                transform=test_transform)
+
+            stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
+            test_dataset.labels = stl_to_cifar_indices[test_dataset.labels]
+            test_dataset = torch.utils.data.Subset(test_dataset,np.where(test_dataset.labels != -1)[0])
     else:
         print("***** ERROR ERROR ERROR ******")
-        print("Invalid Dataset Selected, Exiting")
+        print("xxx Invalid Dataset Selected, Exiting")
         exit()
      
     train_loader = torch.utils.data.DataLoader(
@@ -223,7 +250,7 @@ def main():
     random.seed(args.seed)
     n1_d1_test_acc,n1_d1_train_acc,n1_d2_train_acc, n1_d2_test_acc = -1,-1,-1,-1
     n2_d1_test_acc,n2_d1_train_acc,n2_d2_train_acc, n2_d2_test_acc = -1,-1,-1,-1
-    
+    print("args.dataset_1",args.dataset_1) 
     """
     Create Model 1
     """
@@ -301,7 +328,7 @@ def main():
     if args.dataset_2.lower() != "none": 
         _, n1_d2_test_acc =  test(net=net_1,test_loader=d2_test_loader)
         _, n1_d2_train_acc =  test(net=net_1,test_loader=d2_train_loader)
-        if args.model_2.ckpt.lower() != "none": 
+        if args.model_2_ckpt.lower() != "none": 
             _, n2_d2_test_acc =  test(net=net_2,test_loader=d2_test_loader)
             _, n2_d2_train_acc =  test(net=net_2,test_loader=d2_train_loader)
     print("********** Accs *************") 

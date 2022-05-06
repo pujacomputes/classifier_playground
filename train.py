@@ -151,7 +151,7 @@ def main():
         + "_" + str(args.ft_learning_rate) \
         + "_" + str(args.ft_decay) \
         + "_" + str(args.l2sp_weight) \
-
+        + "_" + str(args.seed)
  
     """
     Throw away classifier.

@@ -12,12 +12,16 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 NUM_CLASSES_DICT = {
     'cifar10':10,
     'stl10':10,
-    'none':-1
+    'none':-1,
+    'STL10':10,
+
 }
 
 norm_dict = {
     'cifar10_mean':[0.485, 0.456, 0.406],
-    'cifar10_std': [0.228, 0.224, 0.225]
+    'cifar10_std': [0.228, 0.224, 0.225],
+    'stl10_mean':[0.485, 0.456, 0.406],
+    'stl10_std': [0.228, 0.224, 0.225],
 }
 
 #https://github.com/AnanyaKumar/transfer_learning/blob/main/unlabeled_extrapolation/baseline_train.py
@@ -86,6 +90,8 @@ def get_transform(dataset,SELECTED_AUG):
         num_classes = 10
     elif dataset == 'imagenet1K':
         num_classes = 1000
+    elif dataset.lower() == 'stl10':
+        num_classes = 10
     else:
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
