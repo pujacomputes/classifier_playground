@@ -74,18 +74,18 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
         is_best = test_acc > best_acc
         best_acc = max(test_acc, best_acc)
 
-        if is_best:
-            checkpoint = {
-            'epoch': epoch,
-            'dataset': args.dataset,
-            'model': args.arch,
-            'state_dict': net.state_dict(),
-            'best_acc': best_acc,
-            'optimizer': optimizer.state_dict(),
-            'protocol':args.protocol
-            }
-            save_path = os.path.join(args.save, save_name + "_" + args.protocol +'_model_best.pth.tar')
-            torch.save(checkpoint, save_path)
+        # if is_best:
+        #     checkpoint = {
+        #     'epoch': epoch,
+        #     'dataset': args.dataset,
+        #     'model': args.arch,
+        #     'state_dict': net.state_dict(),
+        #     'best_acc': best_acc,
+        #     'optimizer': optimizer.state_dict(),
+        #     'protocol':args.protocol
+        #     }
+        #     save_path = os.path.join(args.save, save_name + "_" + args.protocol +'_model_best.pth.tar')
+        #     torch.save(checkpoint, save_path)
 
         with open(log_path, 'a') as f:
             f.write('%03d,%05d,%0.6f,%0.5f,%0.2f\n' % (
@@ -103,7 +103,8 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
         #             test_loss, 100 - 100. * test_acc))
         #Print the OOD acc each epoch if we are fine-tuning.
         # else:
-        _,ood_acc = test(net,ood_loader)
+        # _,ood_acc = test(net,ood_loader)
+        ood_acc = -1
         print(
             'Epoch {0:3d} | Time {1:5d} | Train Loss {2:.4f} | Test Loss {3:.3f} | L2 Loss {4:.3f} |'
             ' Test Error {5:.2f} | OOD Error {6:.2f}'

@@ -7,11 +7,15 @@
 *.zip
 notebooks/
 ckpts/
+ckpts_v1/
 figs/
 logs/
+logs_v1/
 wandb/ 
 *idx
 *out
+*.ckpt
+*sh
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

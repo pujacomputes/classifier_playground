@@ -297,6 +297,12 @@ def unfreeze_layers_for_ft(model):
         param.requires_grad = True 
     return model
 
+def unfreeze_layers_for_lpfrz_ft(model):
+    for name, param in model.named_parameters():
+        if 'fc' not in name:
+            param.requires_grad = True 
+    return model
+
 def arg_parser():
     parser = argparse.ArgumentParser(
     description='Transfer Learning Experiments',
@@ -323,7 +329,7 @@ def arg_parser():
         '--protocol',
         type=str,
         default='lp',
-        choices=['lp', 'ft', 'lp+ft'])
+        choices=['lp', 'ft', 'lp+ft','lpfrz+ft'])
     parser.add_argument(
         '--pretrained_ckpt',
         type=str,
@@ -385,7 +391,7 @@ def arg_parser():
         default=0.0005,
         help='Weight decay (L2 penalty).')
     parser.add_argument(
-        '--droprate', default=0.3, type=float, help='Dropout probability')
+        '--droprate', default=0.0, type=float, help='Dropout probability')
     parser.add_argument(
         '--save',
         '-s',
