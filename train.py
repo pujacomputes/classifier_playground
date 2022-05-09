@@ -13,11 +13,6 @@ import pdb
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def get_lr(step, total_steps, lr_max, lr_min):
-  """Compute learning rate according to cosine annealing schedule."""
-  return lr_min + (lr_max - lr_min) * 0.5 * (1 +
-                                             np.cos(step / total_steps * np.pi))
-
 """
 Wrapped into function so we 
 can call it for fine-tuning too.
@@ -41,7 +36,7 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
         criterion = torch.nn.CrossEntropyLoss()
     for epoch in range(start_epoch, end_epoch):
         begin_time = time.time() 
-        if protocol in ['lp','lp+ft']: #note: if we are doing the ft part of lp/ft, 
+        if protocol in ['lp']: #note: protocol re-specified in the main function as lp or ft ONLY. 
             net.eval()
         else:
             net.train()
@@ -153,6 +148,10 @@ def main():
         + "_" + str(args.ft_decay) \
         + "_" + str(args.l2sp_weight) \
         + "_" + str(args.seed)
+    
+    print("******************************")
+    print(save_name)
+    print("******************************")
  
     """
     Throw away classifier.
@@ -268,8 +267,13 @@ def main():
     """
     Performing Fine-tuing Training!
     """
-    if args.protocol in ['lp+ft','ft']:
-        net = unfreeze_layers_for_ft(net)
+    if args.protocol in ['lp+ft','ft','lpfrz+ft']:
+        if args.protocol == 'lpfrz+ft':
+            print("=> Freezing Classifier, Unfreezing All Other Layers!")
+            net = unfreeze_layers_for_lpfrz_ft(net)
+        else: 
+            print("=> Unfreezing All Layers") 
+            net = unfreeze_layers_for_ft(net)
         log_path = os.path.join("/p/lustre1/trivedi1/compnets/classifier_playground/logs",
                             "ft+" + save_name + '_training_log.csv') 
         """
