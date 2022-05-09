@@ -1,4 +1,5 @@
 import argparse
+import random
 import numpy as np
 import tqdm
 import timm
@@ -509,10 +510,127 @@ class LR_Scheduler(object):
         return self.current_lr
 
 class SoftTargetCrossEntropy(torch.nn.Module):
-
     def __init__(self):
         super(SoftTargetCrossEntropy, self).__init__()
 
     def forward(self, x: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         loss = torch.sum(-target * F.log_softmax(x, dim=-1), dim=-1)
         return loss.mean()
+"""
+Used for getting the dataloaders 
+for extracting CKA, Prediction Depth 
+and evaluation. 
+There is no shuffling and other parameters are 
+fixed too. 
+"""
+
+def get_fixed_dataloaders(args,dataset, train_aug, train_transform):
+    def seed_worker(worker_id):
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+
+    g = torch.Generator()
+    g.manual_seed(args.seed)
+    if train_aug != 'test':
+        print("*"*65)
+        print("Calling Evaluation Dataloaders with an Aug: {}!".format(train_aug))
+        print("Please make sure this what you really wanted to do!")
+        print("*"*65)
+    normalize = transforms.Compose([transforms.Resize(224),transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225])])    
+    if train_aug not in ['mixup','cutmix','cutout']:
+        train_transform_x = train_transform
+    else:
+        train_transform_x = normalize 
+    if dataset == 'cifar10':
+        train_dataset = torchvision.datasets.CIFAR10(root="/p/lustre1/trivedi1/vision_data",
+            train=True,
+            transform=train_transform_x)
+    elif dataset == 'cifar100':
+        train_dataset = torchvision.datasets.CIFAR100(root="/p/lustre1/trivedi1/vision_data",
+            train=True,
+            transform=train_transform_x)
+    elif dataset == 'STL10' or dataset == 'stl10':
+        train_dataset = torchvision.datasets.STL10(root="/p/lustre1/trivedi1/vision_data",
+            split='train',
+            download=False,
+            transform=train_transform_x)
+
+        stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
+        train_dataset.labels = stl_to_cifar_indices[train_dataset.labels]
+        train_dataset = torch.utils.data.Subset(train_dataset,np.where(train_dataset.labels != -1)[0])
+    
+    elif dataset.lower() == 'cifar10p1':
+        train_dataset = CIFAR10p1(root="/p/lustre1/trivedi1/vision_data/CIFAR10.1/",
+            split='train',
+            verision='v6',
+            transform=train_transform_x)
+    else:
+        print("***** ERROR ERROR ERROR ******")
+        print("Invalid Dataset Selected, Exiting")
+        exit()
+    
+    """
+    Create Test Dataloaders.
+    """
+    if dataset == 'cifar10':
+        test_dataset = torchvision.datasets.CIFAR10(root="/p/lustre1/trivedi1/vision_data",
+            train=False,
+            transform=normalize)
+        NUM_CLASSES=10
+    elif dataset == 'cifar100':
+        test_dataset = torchvision.datasets.CIFAR100(root="/p/lustre1/trivedi1/vision_data",
+            train=False,
+            transform=normalize)
+        NUM_CLASSES=100
+    elif dataset == 'STL10' or dataset == 'stl10':
+        test_dataset = torchvision.datasets.STL10(root="/p/lustre1/trivedi1/vision_data",
+            split='test',
+            download=False,
+            transform=normalize)
+        stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
+        test_dataset.labels = stl_to_cifar_indices[test_dataset.labels]
+        test_dataset = torch.utils.data.Subset(test_dataset,np.where(test_dataset.labels != -1)[0])
+    
+    elif dataset.lower() == 'cifar10p1':
+        train_dataset = CIFAR10p1(root="/p/lustre1/trivedi1/vision_data/CIFAR10.1/",
+            split='test',
+            verision='v6',
+            transform=normalize)
+    else:
+        print("***** ERROR ERROR ERROR ******")
+        print("Invalid Dataset Selected, Exiting")
+        exit()
+     
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        worker_init_fn=seed_worker,
+        generator=g)
+
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        worker_init_fn=seed_worker,
+        generator=g)
+
+    return train_loader, test_loader
+
+CORRUPTIONS = [
+    'gaussian_noise', 'shot_noise', 'impulse_noise', 'defocus_blur',
+    'glass_blur', 'motion_blur', 'zoom_blur', 'snow', 'frost', 'fog',
+    'brightness', 'contrast', 'elastic_transform', 'pixelate',
+    'jpeg_compression'
+]
+
+CBAR_CORRUPTIONS = [
+    "blue_noise_sample", "brownish_noise", "checkerboard_cutout", 
+    "inverse_sparkles", "pinch_and_twirl", "ripple", "circular_motion_blur", 
+    "lines", "sparkles", "transverse_chromatic_abberation"]
