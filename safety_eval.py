@@ -447,6 +447,41 @@ def main():
         with open("{}/clean_test_acc.csv".format(safety_logs_prefix),"a") as f:
             write_str = "{save_name},{acc:.4f}\n".format(save_name = save_name,acc = clean_test_acc)
             f.write(write_str)
+    
+    """
+    Eval OOD.
+    """
+    # if args.eval_all or args.eval_OOD:
+    #     normalize = transforms.Compose([transforms.Resize(224),transforms.ToTensor(),
+    #         transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225]),
+    #         ])
+
+    #     ood_train_dataset = torchvision.datasets.STL10(root="/p/lustre1/trivedi1/vision_data", split='train',
+    #         download=False,
+    #         transform=normalize)
+
+    #     stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
+    #     ood_train_dataset.labels = stl_to_cifar_indices[ood_train_dataset.labels]
+    #     ood_train_dataset = torch.utils.data.Subset(ood_train_dataset,np.where(train_dataset.labels != -1)[0])
+    #     ood_train_loader = torch.utils.data.DataLoader(
+    #         clean_train_dataset,
+    #         batch_size=args.eval_batch_size,
+    #         shuffle=False,
+    #         num_workers=args.num_workers,
+    #         pin_memory=True)
+    
+    #     clean_err, clean_acc = test(net=net,test_loader=clean_train_loader,adv=None)
+    #     print("=> Clean Train Acc: {0:.4f}".format(clean_acc))
+    #     with open("{}/ood_acc.csv".format(safety_logs_prefix),"a") as f:
+    #         write_str = "{save_name},{acc:.4f}\n".format(save_name = save_name,acc = clean_acc)
+    #         f.write(write_str)
+    #     del clean_train_loader
+    #     del clean_train_dataset
+    #     clean_test_err, clean_test_acc = test(net=net,test_loader=clean_test_loader,adv=None)
+    #     print("=> Clean Test Acc: {0:.4f}".format(clean_test_acc))
+    #     with open("{}/clean_test_acc.csv".format(safety_logs_prefix),"a") as f:
+    #         write_str = "{save_name},{acc:.4f}\n".format(save_name = save_name,acc = clean_test_acc)
+    #         f.write(write_str)
     """
     Anamoly Detection.
     """
@@ -460,13 +495,13 @@ def main():
     """
     Adversarial Accuracy
     """
-    if args.eval_all or args.eval_A:
-        adversary = PGD(epsilon=2./255, num_steps=20, step_size=0.5/255).cuda()
-        adv_test_loss, adv_test_acc = test(net, clean_test_loader, adv=adversary)
-        print("=> Adv. Test Loss: {0:.4f} -- Adv. Test Acc: {1:.4f}".format(adv_test_loss,adv_test_acc))        
-        with open("{}/adversaries.csv".format(safety_logs_prefix),"a") as f:
-            write_str = "{save_name},{adv_test:.4f}\n".format(save_name=save_name,adv_test = adv_test_acc)
-            f.write(write_str)
+    # if args.eval_all or args.eval_A:
+    #     adversary = PGD(epsilon=2./255, num_steps=20, step_size=0.5/255).cuda()
+    #     adv_test_loss, adv_test_acc = test(net, clean_test_loader, adv=adversary)
+    #     print("=> Adv. Test Loss: {0:.4f} -- Adv. Test Acc: {1:.4f}".format(adv_test_loss,adv_test_acc))        
+    #     with open("{}/adversaries.csv".format(safety_logs_prefix),"a") as f:
+    #         write_str = "{save_name},{adv_test:.4f}\n".format(save_name=save_name,adv_test = adv_test_acc)
+    #         f.write(write_str)
 
     """
     Corruptions Accuracy
