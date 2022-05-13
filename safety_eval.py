@@ -20,7 +20,7 @@ import torchvision.datasets as dset
 from skimage.filters import gaussian as gblur
 from PIL import Image as PILImage
 from dtd_dataset import DTD
-
+from cifar10p1 import CIFAR10p1
 def test(net, test_loader, adv=None):
     """Evaluate network on given dataset."""
     net.eval()
@@ -350,7 +350,8 @@ def arg_parser_eval():
     parser.add_argument('--eval_C', action='store_true', help='Eval on Corruptions.')
     parser.add_argument('--eval_P', action='store_true', help='Eval on Perturbation.')
     parser.add_argument('--eval_A', action='store_true', help='Eval on Adversarial Examples.')
-    parser.add_argument('--eval_O',action='store_true',help='Eval on OOD Datasets')
+    parser.add_argument('--eval_O',action='store_true',help='Eval on Anamoly Detection on OOD')
+    parser.add_argument('--eval_OOD',action='store_true',help='Distribution Shift OOD Datasets')
     parser.add_argument('--eval_Cal',action='store_true',help='Eval Calibration Error')
     parser.add_argument('--eval_Clean',action='store_true',help='Clean Accuracy')
     parser.add_argument('--use_xent',action='store_true',help='Use CrossEntropy in the OOD Eval.')
@@ -451,37 +452,52 @@ def main():
     """
     Eval OOD.
     """
-    # if args.eval_all or args.eval_OOD:
-    #     normalize = transforms.Compose([transforms.Resize(224),transforms.ToTensor(),
-    #         transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225]),
-    #         ])
+    if args.eval_all or args.eval_OOD:
+        
+        normalize = transforms.Compose([transforms.Resize(224),transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225]),
+            ])
+        """
+        STL OOD Acc.
+        """
+        ood_test_dataset = torchvision.datasets.STL10(root="/p/lustre1/trivedi1/vision_data", split='test',
+            download=False,
+            transform=normalize)
 
-    #     ood_train_dataset = torchvision.datasets.STL10(root="/p/lustre1/trivedi1/vision_data", split='train',
-    #         download=False,
-    #         transform=normalize)
-
-    #     stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
-    #     ood_train_dataset.labels = stl_to_cifar_indices[ood_train_dataset.labels]
-    #     ood_train_dataset = torch.utils.data.Subset(ood_train_dataset,np.where(train_dataset.labels != -1)[0])
-    #     ood_train_loader = torch.utils.data.DataLoader(
-    #         clean_train_dataset,
-    #         batch_size=args.eval_batch_size,
-    #         shuffle=False,
-    #         num_workers=args.num_workers,
-    #         pin_memory=True)
-    
-    #     clean_err, clean_acc = test(net=net,test_loader=clean_train_loader,adv=None)
-    #     print("=> Clean Train Acc: {0:.4f}".format(clean_acc))
-    #     with open("{}/ood_acc.csv".format(safety_logs_prefix),"a") as f:
-    #         write_str = "{save_name},{acc:.4f}\n".format(save_name = save_name,acc = clean_acc)
-    #         f.write(write_str)
-    #     del clean_train_loader
-    #     del clean_train_dataset
-    #     clean_test_err, clean_test_acc = test(net=net,test_loader=clean_test_loader,adv=None)
-    #     print("=> Clean Test Acc: {0:.4f}".format(clean_test_acc))
-    #     with open("{}/clean_test_acc.csv".format(safety_logs_prefix),"a") as f:
-    #         write_str = "{save_name},{acc:.4f}\n".format(save_name = save_name,acc = clean_test_acc)
-    #         f.write(write_str)
+        stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
+        ood_test_dataset.labels = stl_to_cifar_indices[ood_test_dataset.labels]
+        ood_test_dataset = torch.utils.data.Subset(ood_test_dataset,np.where(train_dataset.labels != -1)[0])
+        ood_test_loader = torch.utils.data.DataLoader(
+            clean_train_dataset,
+            batch_size=args.eval_batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True)
+        del ood_test_loader, ood_test_dataset 
+        clean_err, stl_acc = test(net=net,test_loader=ood_test_loader,adv=None)
+        print("=> OOD, STL, Acc: {0:.4f}".format(stl_acc))
+        """
+        CIFAR10.1 OOD Acc.
+        """
+        ood_dataset = CIFAR10p1(root="/p/lustre1/trivedi1/vision_data/CIFAR10.1/",
+            split='test',
+            verision='v6',
+            transform=normalize) 
+        ood_test_loader = torch.utils.data.DataLoader(
+            clean_train_dataset,
+            batch_size=args.eval_batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True)
+        clean_err, cifar10p1_acc = test(net=net,test_loader=ood_test_loader,adv=None)
+        with open("{}/ood_acc.csv".format(safety_logs_prefix),"a") as f:
+            """STL"""
+            write_str = "{save_name},stl10,{acc:.4f}\n".format(save_name = save_name,acc = stl_acc)
+            f.write(write_str)
+            write_str = "{save_name},cifar10p1,{acc:.4f}\n".format(save_name = save_name,acc = cifar10p1_acc)
+            f.write(write_str)
+        del ood_test_loader 
+        del ood_dataset 
     """
     Anamoly Detection.
     """

@@ -330,7 +330,7 @@ def arg_parser():
         '--protocol',
         type=str,
         default='lp',
-        choices=['lp', 'ft', 'lp+ft','lpfrz+ft'])
+        choices=['lp', 'ft', 'lp+ft','lpfrz+ft','sklp','sklp+ft','vatlp','vatlp+ft'])
     parser.add_argument(
         '--pretrained_ckpt',
         type=str,
@@ -622,6 +622,15 @@ def get_fixed_dataloaders(args,dataset, train_aug, train_transform):
         generator=g)
 
     return train_loader, test_loader
+
+def set_linear_layer(layer, coef, intercept):
+    coef_tensor = torch.tensor(coef, dtype=layer.weight.dtype).cuda()
+    bias_tensor = torch.tensor(intercept, dtype=layer.bias.dtype).cuda()
+    coef_param = torch.nn.parameter.Parameter(coef_tensor)
+    bias_param = torch.nn.parameter.Parameter(bias_tensor)
+    layer.weight = coef_param
+    layer.bias = bias_param
+    return layer
 
 CORRUPTIONS = [
     'gaussian_noise', 'shot_noise', 'impulse_noise', 'defocus_blur',
