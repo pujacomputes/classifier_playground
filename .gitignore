@@ -1,4 +1,5 @@
 # Checkpoints/Data/Figures/Logs
+*.tar
 *.pdf
 *.csv
 *.npy

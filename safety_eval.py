@@ -466,38 +466,39 @@ def main():
 
         stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
         ood_test_dataset.labels = stl_to_cifar_indices[ood_test_dataset.labels]
-        ood_test_dataset = torch.utils.data.Subset(ood_test_dataset,np.where(train_dataset.labels != -1)[0])
+        ood_test_dataset = torch.utils.data.Subset(ood_test_dataset,np.where(ood_test_dataset.labels != -1)[0])
         ood_test_loader = torch.utils.data.DataLoader(
-            clean_train_dataset,
+            ood_test_dataset,
             batch_size=args.eval_batch_size,
             shuffle=False,
             num_workers=args.num_workers,
             pin_memory=True)
-        del ood_test_loader, ood_test_dataset 
         clean_err, stl_acc = test(net=net,test_loader=ood_test_loader,adv=None)
         print("=> OOD, STL, Acc: {0:.4f}".format(stl_acc))
-        """
-        CIFAR10.1 OOD Acc.
-        """
-        ood_dataset = CIFAR10p1(root="/p/lustre1/trivedi1/vision_data/CIFAR10.1/",
-            split='test',
-            verision='v6',
-            transform=normalize) 
-        ood_test_loader = torch.utils.data.DataLoader(
-            clean_train_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True)
-        clean_err, cifar10p1_acc = test(net=net,test_loader=ood_test_loader,adv=None)
+        del ood_test_loader, ood_test_dataset 
         with open("{}/ood_acc.csv".format(safety_logs_prefix),"a") as f:
             """STL"""
             write_str = "{save_name},stl10,{acc:.4f}\n".format(save_name = save_name,acc = stl_acc)
             f.write(write_str)
-            write_str = "{save_name},cifar10p1,{acc:.4f}\n".format(save_name = save_name,acc = cifar10p1_acc)
-            f.write(write_str)
-        del ood_test_loader 
-        del ood_dataset 
+        # """
+        # CIFAR10.1 OOD Acc.
+        # """
+        # ood_dataset = CIFAR10p1(root="/p/lustre1/trivedi1/vision_data/CIFAR10.1/",
+        #     split='test',
+        #     version='v6',
+        #     transform=normalize) 
+        # ood_test_loader = torch.utils.data.DataLoader(
+        #     ood_dataset,
+        #     batch_size=args.eval_batch_size,
+        #     shuffle=False,
+        #     num_workers=args.num_workers,
+        #     pin_memory=True)
+        # clean_err, cifar10p1_acc = test(net=net,test_loader=ood_test_loader,adv=None)
+        # with open("{}/ood_acc.csv".format(safety_logs_prefix),"a") as f:
+        #     write_str = "{save_name},cifar10p1,{acc:.4f}\n".format(save_name = save_name,acc = cifar10p1_acc)
+        #     f.write(write_str)
+        # del ood_test_loader 
+        # del ood_dataset 
     """
     Anamoly Detection.
     """

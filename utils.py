@@ -151,7 +151,7 @@ def get_transform(dataset,SELECTED_AUG):
             [transforms.RandomHorizontalFlip(),
             transforms.RandomCrop(32, padding=4),resize, transforms.ToTensor(),normalize])
     
-    elif SELECTED_AUG == 'test':
+    elif SELECTED_AUG == 'test' or SELECTED_AUG == 'vat':
         transform = transforms.Compose(
             [transforms.Resize(224), transforms.ToTensor(),normalize])
     elif SELECTED_AUG == 'pixmix':
@@ -343,7 +343,7 @@ def arg_parser():
         '--train_aug',
         type=str,
         default='autoaug',
-        choices=['cutout','mixup','cutmix','autoaug','augmix','randaug','base','pixmix','test']
+        choices=['cutout','mixup','cutmix','autoaug','augmix','randaug','base','pixmix','test','vat']
     )
     parser.add_argument(
         '--test_aug',
@@ -360,6 +360,12 @@ def arg_parser():
         '--epochs',
         type=int,
         default=20
+    )
+    
+    parser.add_argument(
+        '--alpha',
+        type=float,
+        default=1e-1
     )
     
     parser.add_argument(
