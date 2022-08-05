@@ -14,7 +14,7 @@ import utils
 from torch.utils.data import Dataset
 import os
 from PIL import Image
-
+import pdb
 
 VALID_DOMAINS = [
     'clipart',
@@ -42,7 +42,7 @@ VALID_SPLITS = ['train', 'test']
 VALID_VERSIONS = ['full', 'sentry']
 
 ROOT = '/p/lustre1/trivedi1/vision_data/DomainNet'
-SENTRY_SPLITS_ROOT = '/p/lustre1/trivedi1/compnets/SENTRY/data/DomainNet/txt'
+SENTRY_SPLITS_ROOT = '/p/lustre1/trivedi1/vision_data/SENTRY_SPLITS' 
 
 
 def load_dataset(domains, split, version):
@@ -87,13 +87,11 @@ class DomainNet(Dataset):
 
         self._unlabeled = unlabeled
         self.data = load_dataset(domain_list, split, version)
-        self.means = [0.485, 0.456, 0.406]
-        self.stds = [0.228, 0.224, 0.225]
         if verbose:
             print(f'Loaded domains {", ".join(domain_list)}, split is {split}')
             print(f'Total number of images: {len(self.data)}')
             print(f'Total number of classes: {self.get_num_classes()}')
-
+            print("transform: ",self._transform)
     def __len__(self):
         return len(self.data)
 
@@ -106,6 +104,7 @@ class DomainNet(Dataset):
         # if self._unlabeled:
         #     return x, -1
         # else:
+        # print(x.shape)
         return x, int(y)
 
     def get_num_classes(self):
