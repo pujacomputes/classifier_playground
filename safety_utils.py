@@ -25,77 +25,77 @@ CBAR_CORRUPTIONS = [
     "inverse_sparkles", "pinch_and_twirl", "ripple", "circular_motion_blur", 
     "lines", "sparkles", "transverse_chromatic_abberation"]
 
-def get_transform(SELECTED_AUG,dataset='cifar100'):
-    if dataset == 'cifar100':
-        num_classes = 100
-    elif dataset == 'cifar10':
-        num_classes = 10
-    elif dataset == 'imagenet1K':
-        num_classes = 1000
-    else:
-        print("***** ERROR ERROR ERROR ******")
-        print("Invalid Dataset Selected, Exiting")
-        exit()
-    hparams= {'translate_const': 100, 'img_mean': (124, 116, 104)}
-    normalize = transforms.Normalize([0.5] * 3, [0.5] * 3)
-    if SELECTED_AUG == 'cutout':
-        transform = timm.data.random_erasing.RandomErasing(probability=1.0, 
-            min_area=0.02, 
-            max_area=1/3, 
-            min_aspect=0.3, 
-            max_aspect=None,
-            mode='const', 
-            min_count=1, 
-            max_count=None, 
-            num_splits=0, 
-            device=DEVICE)
-    elif SELECTED_AUG == 'mixup':
-        #mixup active if mixup_alpha > 0
-        #cutmix active if cutmix_alpha > 0
-        transform = timm.data.mixup.Mixup(mixup_alpha=1., 
-            cutmix_alpha=0., 
-            cutmix_minmax=None, 
-            prob=1.0, 
-            switch_prob=0.0,
-            mode='batch', 
-            correct_lam=True, 
-            label_smoothing=0.1, 
-            num_classes=num_classes)
-    elif SELECTED_AUG == 'cutmix':
-        transform = timm.data.mixup.Mixup(mixup_alpha=0., 
-            cutmix_alpha=1., 
-            cutmix_minmax=None, 
-            prob=0.8, 
-            switch_prob=0.0,
-            mode='batch', 
-            correct_lam=True, 
-            label_smoothing=0.1, 
-            num_classes=num_classes)
-    elif SELECTED_AUG == 'autoaug':
-        #no searching code;
-        transform = timm.data.auto_augment.auto_augment_transform(config_str='original-mstd0.5',
-        hparams= hparams)
-    elif SELECTED_AUG == 'augmix':
-        transform = timm.data.auto_augment.augment_and_mix_transform(
-            config_str='augmix-m5-w4-d2',
-            hparams=hparams)
-    elif SELECTED_AUG == 'randaug':
-        transform = timm.data.auto_augment.rand_augment_transform( 
-            config_str='rand-m3-n2-mstd0.5',
-            hparams=hparams
-            )
-    elif SELECTED_AUG == 'base':
-        transform = transforms.Compose(
-            [transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(32, padding=4),transforms.ToTensor(),normalize])
+# def get_transform(SELECTED_AUG,dataset='cifar100'):
+#     if dataset == 'cifar100':
+#         num_classes = 100
+#     elif dataset == 'cifar10':
+#         num_classes = 10
+#     elif dataset == 'imagenet1K':
+#         num_classes = 1000
+#     else:
+#         print("***** ERROR ERROR ERROR ******")
+#         print("Invalid Dataset Selected, Exiting")
+#         exit()
+#     hparams= {'translate_const': 100, 'img_mean': (124, 116, 104)}
+#     normalize = transforms.Normalize([0.5] * 3, [0.5] * 3)
+#     if SELECTED_AUG == 'cutout':
+#         transform = timm.data.random_erasing.RandomErasing(probability=1.0, 
+#             min_area=0.02, 
+#             max_area=1/3, 
+#             min_aspect=0.3, 
+#             max_aspect=None,
+#             mode='const', 
+#             min_count=1, 
+#             max_count=None, 
+#             num_splits=0, 
+#             device=DEVICE)
+#     elif SELECTED_AUG == 'mixup':
+#         #mixup active if mixup_alpha > 0
+#         #cutmix active if cutmix_alpha > 0
+#         transform = timm.data.mixup.Mixup(mixup_alpha=1., 
+#             cutmix_alpha=0., 
+#             cutmix_minmax=None, 
+#             prob=1.0, 
+#             switch_prob=0.0,
+#             mode='batch', 
+#             correct_lam=True, 
+#             label_smoothing=0.1, 
+#             num_classes=num_classes)
+#     elif SELECTED_AUG == 'cutmix':
+#         transform = timm.data.mixup.Mixup(mixup_alpha=0., 
+#             cutmix_alpha=1., 
+#             cutmix_minmax=None, 
+#             prob=0.8, 
+#             switch_prob=0.0,
+#             mode='batch', 
+#             correct_lam=True, 
+#             label_smoothing=0.1, 
+#             num_classes=num_classes)
+#     elif SELECTED_AUG == 'autoaug':
+#         #no searching code;
+#         transform = timm.data.auto_augment.auto_augment_transform(config_str='original-mstd0.5',
+#         hparams= hparams)
+#     elif SELECTED_AUG == 'augmix':
+#         transform = timm.data.auto_augment.augment_and_mix_transform(
+#             config_str='augmix-m5-w4-d2',
+#             hparams=hparams)
+#     elif SELECTED_AUG == 'randaug':
+#         transform = timm.data.auto_augment.rand_augment_transform( 
+#             config_str='rand-m3-n2-mstd0.5',
+#             hparams=hparams
+#             )
+#     elif SELECTED_AUG == 'base':
+#         transform = transforms.Compose(
+#             [transforms.RandomHorizontalFlip(),
+#             transforms.RandomCrop(32, padding=4),transforms.ToTensor(),normalize])
 
-    elif SELECTED_AUG == 'pixmix':
-        transform = None
-    if SELECTED_AUG == 'cutout':
-        pass
-    if SELECTED_AUG in ['randaug','augmix','autoaug']:
-       transform = torchvision.transforms.Compose([transform,torchvision.transforms.ToTensor(),normalize]) 
-    return transform
+#     elif SELECTED_AUG == 'pixmix':
+#         transform = None
+#     if SELECTED_AUG == 'cutout':
+#         pass
+#     if SELECTED_AUG in ['randaug','augmix','autoaug']:
+#        transform = torchvision.transforms.Compose([transform,torchvision.transforms.ToTensor(),normalize]) 
+#     return transform
 
 """
 PixMix Augmentation Code!

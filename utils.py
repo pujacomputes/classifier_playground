@@ -8,6 +8,8 @@ import torchvision
 import torchvision.transforms as transforms
 import torch.nn.functional as F
 from cifar10p1 import CIFAR10p1
+import domainnet
+
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 NUM_CLASSES_DICT = {
@@ -15,6 +17,10 @@ NUM_CLASSES_DICT = {
     'stl10':10,
     'none':-1,
     'STL10':10,
+    'domainnet-sketch':40,
+    'domainnet-art':40,
+    'domainnet-real':40,
+    'domainnet-painting':40,
 
 }
 
@@ -23,6 +29,10 @@ norm_dict = {
     'cifar10_std': [0.228, 0.224, 0.225],
     'stl10_mean':[0.485, 0.456, 0.406],
     'stl10_std': [0.228, 0.224, 0.225],
+    'clip_mean':[0.48145466, 0.4578275, 0.40821073],
+    'clip_std':[0.26862954, 0.26130258, 0.27577711],
+    'domainnet_mean':[0.485, 0.456, 0.406], #from domainnet py
+    'domainnet_std':[0.485, 0.456, 0.406]
 }
 
 #https://github.com/AnanyaKumar/transfer_learning/blob/main/unlabeled_extrapolation/baseline_train.py
@@ -46,9 +56,12 @@ def get_l2_dist(weight_dict1, weight_dict2, ignore='.fc.'):
             l2_dist += torch.sum(torch.square(weight_dict1[key] - weight_dict2[key]))
     return l2_dist
 
-def get_oodloader(args,dataset):
-    normalize = transforms.Normalize(norm_dict[args.dataset+"_mean"], norm_dict[args.dataset + "_std"])
-    transform = transforms.Compose([transforms.Resize(224), transforms.ToTensor(),normalize])
+def get_oodloader(args,dataset,use_clip_mean=False):
+    if use_clip_mean:
+        normalize = transforms.Normalize(norm_dict["clip_mean"], norm_dict["clip_std"])
+    else:
+        normalize = transforms.Normalize(norm_dict[args.dataset+"_mean"], norm_dict[args.dataset + "_std"])
+    transform = transforms.Compose([transforms.Resize((224,224)), transforms.ToTensor(),normalize])
     if dataset.upper() == 'STL10':
         ood_dataset = torchvision.datasets.STL10(root="/p/lustre1/trivedi1/vision_data",
             split='test',
@@ -64,7 +77,13 @@ def get_oodloader(args,dataset):
             split='test',
             verision='v6',
             transform=transform)
-
+    elif "domainnet" in dataset.lower():
+        domain_name = dataset.split("-")[-1]
+        ood_dataset = domainnet.DomainNet(domain=domain_name, 
+            split='test',
+            root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet/",
+            transform=transform,
+            verbose=False) 
     else:
         print("ERROR ERROR ERROR")
         print("Not Implemented Yet. Exiting")
@@ -84,7 +103,7 @@ def get_oodloader(args,dataset):
         worker_init_fn=wif) 
     return ood_loader
 
-def get_transform(dataset,SELECTED_AUG):
+def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
     if dataset == 'cifar100':
         num_classes = 100
     elif dataset == 'cifar10':
@@ -93,13 +112,27 @@ def get_transform(dataset,SELECTED_AUG):
         num_classes = 1000
     elif dataset.lower() == 'stl10':
         num_classes = 10
+    elif "domainnet" in dataset:
+        num_classes = 40
     else:
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
         exit()
     hparams= {'translate_const': 100, 'img_mean': (124, 116, 104)}
-    normalize = transforms.Normalize(norm_dict[dataset+"_mean"], norm_dict[dataset + "_std"])
-    resize = transforms.Resize(size=224)
+
+    if use_clip_mean:
+        normalize = transforms.Normalize(norm_dict["clip_mean"], norm_dict["clip_std"])
+    else:
+        normalize = transforms.Normalize(norm_dict[dataset+"_mean"], norm_dict[dataset + "_std"])
+    resize = transforms.Resize(size=(224,224))
+    
+    """
+    IMPORTANT: if cutout/mixup/cutmix are selected,
+    then, when creating the dataloader, a normalize
+    augmentation will be applied in the get_dataloader function 
+    to ensure correct behavior
+    """
+    
     if SELECTED_AUG == 'cutout':
         transform = timm.data.random_erasing.RandomErasing(probability=1.0, 
             min_area=0.02, 
@@ -153,7 +186,7 @@ def get_transform(dataset,SELECTED_AUG):
     
     elif SELECTED_AUG == 'test' or SELECTED_AUG == 'vat':
         transform = transforms.Compose(
-            [transforms.Resize(224), transforms.ToTensor(),normalize])
+            [transforms.Resize((224,224)), transforms.ToTensor(),normalize])
     elif SELECTED_AUG == 'pixmix':
         print("Not Implemented yet!")
 
@@ -161,7 +194,7 @@ def get_transform(dataset,SELECTED_AUG):
        transform = transforms.Compose([resize, transform,transforms.ToTensor(),normalize]) 
     return transform
 
-def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use_ft=False):
+def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use_ft=False,use_clip_mean=False):
     if train_aug not in ['mixup','cutmix','cutout']:
         #initialize the augmentation directly in the dataset
         if args.dataset == 'cifar10':
@@ -172,15 +205,26 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
             train_dataset = torchvision.datasets.CIFAR100(root="/p/lustre1/trivedi1/vision_data",
                 train=True,
                 transform=train_transform)
+        elif "domainnet" in args.dataset.lower():
+            domain_name = args.dataset.split("-")[-1]
+            train_dataset = domainnet.DomainNet(domain=domain_name, 
+                split='train',
+                root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
+                transform=train_transform) 
         else:
             print("***** ERROR ERROR ERROR ******")
             print("Invalid Dataset Selected, Exiting")
             exit()
     else:
         #augmentation will be applied in training loop! 
-        normalize = transforms.Compose([transforms.Resize(224),transforms.ToTensor(),
-            transforms.Normalize(norm_dict[args.dataset+'_mean'], norm_dict[args.dataset + "_std"]),
-            ])
+        if use_clip_mean:
+            normalize = transforms.Compose([transforms.Resize((224,224)),transforms.ToTensor(),
+                transforms.Normalize(norm_dict['clip_mean'], norm_dict["clip_std"]),
+                ])
+        else:
+            normalize = transforms.Compose([transforms.Resize((224,224)),transforms.ToTensor(),
+                transforms.Normalize(norm_dict[args.dataset+'_mean'], norm_dict[args.dataset + "_std"]),
+                ])
         if args.dataset == 'cifar10':
             train_dataset = torchvision.datasets.CIFAR10(root="/p/lustre1/trivedi1/vision_data",
                 train=True,
@@ -189,7 +233,13 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
             train_dataset = torchvision.datasets.CIFAR100(root="/p/lustre1/trivedi1/vision_data",
                 train=True,
                 transform=normalize)
-
+        elif "domainnet" in args.dataset.lower():
+            domain_name = args.dataset.split("-")[-1]
+            train_dataset = domainnet.DomainNet(domain=domain_name, 
+                split='train',
+                root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
+                transform=normalize) 
+        
     """
     Create Test Dataloaders.
     """
@@ -203,6 +253,13 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
             train=False,
             transform=test_transform) 
         NUM_CLASSES=100
+    elif "domainnet" in args.dataset.lower():
+        domain_name = args.dataset.split("-")[-1]
+        test_dataset = domainnet.DomainNet(domain=domain_name, 
+            split='test',
+            root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
+            transform=test_transform) 
+        NUM_CLASSES=40
     else:
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
@@ -312,25 +369,25 @@ def arg_parser():
         '--dataset',
         type=str,
         default='cifar10',
-        choices=['cifar10'])
+        choices=['cifar10','domainnet-sketch'])
     
     parser.add_argument(
         '--eval_dataset',
         type=str,
         default='stl10',
-        choices=['stl10','cifar10.1'])
+        choices=['stl10','cifar10.1','domainnet-painting','domainnet-real','domainnet-clipart','domainnet-all'])
     
     parser.add_argument(
         '--arch',
         type=str,
         default='resnet50',
-        choices=['resnet50'])
+        choices=['resnet50','clip-RN50'])
     
     parser.add_argument(
         '--protocol',
         type=str,
         default='lp',
-        choices=['lp', 'ft', 'lp+ft','lpfrz+ft','sklp','sklp+ft','vatlp','vatlp+ft'])
+        choices=['lp', 'ft', 'lp+ft','lpfrz+ft','sklp','sklp+ft','vatlp','vatlp+ft','voslp','voslp+ft'])
     parser.add_argument(
         '--pretrained_ckpt',
         type=str,
@@ -468,6 +525,16 @@ def arg_parser():
         type=float,
         default=0.0005,
         help='Weight decay (L2 penalty).')
+
+    """
+    VOS
+    """
+    parser.add_argument('--start_epoch', type=int, default=5)
+    parser.add_argument('--sample_number', type=int, default=500)
+    parser.add_argument('--select', type=int, default=1)
+    parser.add_argument('--sample_from', type=int, default=5000)
+    parser.add_argument('--loss_weight', type=float, default=0.01)
+
     args = parser.parse_args()
     return args 
 
@@ -543,7 +610,7 @@ def get_fixed_dataloaders(args,dataset, train_aug, train_transform):
         print("Calling Evaluation Dataloaders with an Aug: {}!".format(train_aug))
         print("Please make sure this what you really wanted to do!")
         print("*"*65)
-    normalize = transforms.Compose([transforms.Resize(224),transforms.ToTensor(),
+    normalize = transforms.Compose([transforms.Resize((224,224)),transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225])])    
     if train_aug not in ['mixup','cutmix','cutout']:
         train_transform_x = train_transform
