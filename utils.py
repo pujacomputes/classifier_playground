@@ -32,7 +32,7 @@ norm_dict = {
     'clip_mean':[0.48145466, 0.4578275, 0.40821073],
     'clip_std':[0.26862954, 0.26130258, 0.27577711],
     'domainnet_mean':[0.485, 0.456, 0.406], #from domainnet py
-    'domainnet_std':[0.485, 0.456, 0.406]
+    'domainnet_std':[0.228, 0.224, 0.225]
 }
 
 #https://github.com/AnanyaKumar/transfer_learning/blob/main/unlabeled_extrapolation/baseline_train.py
@@ -103,17 +103,53 @@ def get_oodloader(args,dataset,use_clip_mean=False):
         worker_init_fn=wif) 
     return ood_loader
 
+def get_corrupted_loader(args,dataset,corruption_name, severity, use_clip_mean=False):
+    if use_clip_mean:
+        normalize = transforms.Normalize(norm_dict["clip_mean"], norm_dict["clip_std"])
+    else:
+        normalize = transforms.Normalize(norm_dict[args.dataset+"_mean"], norm_dict[args.dataset + "_std"])
+    transform = transforms.Compose([transforms.Resize((224,224)), transforms.ToTensor(),normalize])
+    if "domainnet" not in dataset:
+        print("**** EXITING ****")
+        print("Use npy files for CIFAR-10-C")
+        exit()
+    else:
+        domain_name = dataset.split("-")[-1]
+        ood_dataset = domainnet.DomainNet(domain=domain_name, 
+            split='test',
+            root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet-Corrupted/{}/{}".format(corruption_name,severity),
+            transform=transform,
+            verbose=False) 
+    def wif(id):
+        uint64_seed = torch.initial_seed()
+        ss = np.random.SeedSequence([uint64_seed])
+        np.random.seed(ss.generate_state(4))
+
+    ood_loader = torch.utils.data.DataLoader(
+        ood_dataset,
+        batch_size=64,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        worker_init_fn=wif) 
+    return ood_loader
+
+
+
 def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
     if dataset == 'cifar100':
         num_classes = 100
+        crop_size=32
     elif dataset == 'cifar10':
         num_classes = 10
+        crop_size=32
     elif dataset == 'imagenet1K':
         num_classes = 1000
     elif dataset.lower() == 'stl10':
         num_classes = 10
     elif "domainnet" in dataset:
         num_classes = 40
+        crop_size=224
     else:
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
@@ -180,11 +216,23 @@ def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
             hparams=hparams
             )
     elif SELECTED_AUG == 'base':
-        transform = transforms.Compose(
+
+        if "domain" in dataset:
+            transform = transforms.Compose(
+                [transforms.Resize(size=(256,256)),
+                transforms.RandomCrop((224,224)),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                normalize])
+        else:
+            transform = transforms.Compose(
             [transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(32, padding=4),resize, transforms.ToTensor(),normalize])
+            transforms.RandomCrop(32, padding=4),
+            resize, 
+            transforms.ToTensor(),
+            normalize])
     
-    elif SELECTED_AUG == 'test' or SELECTED_AUG == 'vat':
+    elif SELECTED_AUG == 'test' or "vat" in SELECTED_AUG:
         transform = transforms.Compose(
             [transforms.Resize((224,224)), transforms.ToTensor(),normalize])
     elif SELECTED_AUG == 'pixmix':
@@ -277,13 +325,18 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
         batch_size = args.ft_batch_size
     else:
         batch_size = args.batch_size
+    if train_aug in ['mixup','cutmix']:
+        drop_last = True #mixup/cutmix needs an even number of batch samples
+    else:
+        drop_last = False
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=True,
-        worker_init_fn=wif)
+        worker_init_fn=wif,
+        drop_last=drop_last)
 
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
@@ -400,7 +453,7 @@ def arg_parser():
         '--train_aug',
         type=str,
         default='autoaug',
-        choices=['cutout','mixup','cutmix','autoaug','augmix','randaug','base','pixmix','test','vat']
+        #choices=['cutout','mixup','cutmix','autoaug','augmix','randaug','base','pixmix','test','vat']
     )
     parser.add_argument(
         '--test_aug',
@@ -534,6 +587,13 @@ def arg_parser():
     parser.add_argument('--select', type=int, default=1)
     parser.add_argument('--sample_from', type=int, default=5000)
     parser.add_argument('--loss_weight', type=float, default=0.01)
+
+    """
+    Freezing Batchnorm     
+    """
+    parser.add_argument('--bn-train-mode', action='store_true')
+    parser.add_argument('--bn-eval-mode', dest='train_batchnorm', action='store_false')
+    parser.set_defaults(train_batchnorm=True)
 
     args = parser.parse_args()
     return args 

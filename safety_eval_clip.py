@@ -2,7 +2,7 @@
 1. CIFAR 100-C
 2. CIFAR 100-P
 3. Adversarial Attacks
-4. Anamoly Detection 
+4. Anamoly Detection
 """
 import os
 import random
@@ -22,7 +22,7 @@ from PIL import Image as PILImage
 from dtd_dataset import DTD
 from cifar10p1 import CIFAR10p1
 from clip_model import ClipModel
-from utils import get_dataloaders, get_oodloader,get_transform, NUM_CLASSES_DICT
+from utils import get_corrupted_loader, get_dataloaders, get_oodloader,get_transform, NUM_CLASSES_DICT,norm_dict
 
 def test(net, test_loader, adv=None):
     """Evaluate network on given dataset."""
@@ -43,99 +43,154 @@ def test(net, test_loader, adv=None):
     return total_loss / len(test_loader), total_correct / len(test_loader.dataset)
 
 
-def test_c(net, test_data, args):
-  """Evaluate network on given corrupted dataset."""
-  corruption_accs = []
-  corrs = CBAR_CORRUPTIONS if 'Bar' in args.corruption_path else CORRUPTIONS
-  for corruption in corrs:
-    # Reference to original data is mutated
-    # since we are modifying the dataset, I believe data will be normalized.
-    test_data.data = np.load(args.corruption_path + corruption + '.npy')
-    test_data.targets = torch.LongTensor(np.load(args.corruption_path+ 'labels.npy'))
+"""
+We can just load the appropriate dataloader
+for domainnet.
+CIFAR-10-C is saved as npy file though.
+"""
 
-    test_loader = torch.utils.data.DataLoader(
-        test_data,
-        batch_size=args.eval_batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True)
+def test_c_domainnet(net, args):
+    """Evaluate network on given corrupted dataset."""
+    use_clip_mean = "clip" in args.arch.lower()
+    print("=> Use Clip Mean?: ",use_clip_mean)
+    corruption_accs = []
+    corrs = CBAR_CORRUPTIONS if 'Bar' in args.corruption_path else CORRUPTIONS
+    for corruption in corrs:
+        for sev in range(1,6):
+            corrupted_loader = get_corrupted_loader(args,
+                dataset="domainnet-real",
+                corruption_name=corruption,
+                severity=sev,
+                use_clip_mean=use_clip_mean)
 
-    test_loss, test_acc = test(net, test_loader)
-    corruption_accs.append(test_acc)
-    print('{}\tTest Loss {:.3f} | Test Error {:.3f}'.format(
-        corruption, test_loss, 100 - 100. * test_acc))
+            test_loss, test_acc= test(net, corrupted_loader)
+            corruption_accs.append(test_acc)
+            print('{},{}\tTest Loss {:.3f} | Test Error {:.3f}'.format(
+                corruption,sev, test_loss, 100 - 100. * test_acc))
 
-  return np.mean(corruption_accs)
+    return np.mean(corruption_accs)
 
-def test_cal(net, test_data, args):
+def test_cal_domainnet(net, test_data, args):
     concat = lambda x: np.concatenate(x, axis=0)
     to_np = lambda x: x.data.to('cpu').numpy()
-
+    use_clip_mean = "clip" in args.arch.lower()
+    print("=> Use Clip Mean?: ",use_clip_mean)
     corruption_accs = []
     calib_scores = []
     corrs = CBAR_CORRUPTIONS if 'Bar' in args.corruption_path else CORRUPTIONS
     for corruption in corrs:
-        confidence = []
-        correct = []
-        # Reference to original data is mutated
-        test_data.data = np.load(args.corruption_path + corruption + '.npy')
-        test_data.targets = torch.LongTensor(np.load(args.corruption_path+ 'labels.npy'))
+        for sev in range(1,6): 
+            confidence = []
+            correct = []
+            test_loader = get_corrupted_loader(args,
+                dataset="domainnet-real",
+                corruption_name=corruption,
+                severity=sev,
+                use_clip_mean=use_clip_mean)
 
-        test_loader = torch.utils.data.DataLoader(
-            test_data,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True)
+            num_correct = 0
+            with torch.no_grad():
+                for batch_idx, (data, target) in enumerate(test_loader):
+                    data, target = data.cuda(), target.cuda()
+                    output = net(data)
 
-        num_correct = 0
-        with torch.no_grad():
-            for batch_idx, (data, target) in enumerate(test_loader):
-                data, target = data.cuda(), target.cuda()
+                    # accuracy
+                    pred = output.data.max(1)[1]
+                    num_correct += pred.eq(target.data).sum().item()
 
-                output = net(data)
+                    confidence.extend(to_np(F.softmax(output, dim=1).max(1)[0]).squeeze().tolist())
+                    pred = output.data.max(1)[1]
+                    correct.extend(pred.eq(target).to('cpu').numpy().squeeze().tolist())
 
-                # accuracy
-                pred = output.data.max(1)[1]
-                num_correct += pred.eq(target.data).sum().item()
-
-                confidence.extend(to_np(F.softmax(output, dim=1).max(1)[0]).squeeze().tolist())
-                pred = output.data.max(1)[1]
-                correct.extend(pred.eq(target).to('cpu').numpy().squeeze().tolist())
-
-        # acc, confidence, correct
-        acc = num_correct / len(test_loader.dataset)
-        confidence = np.array(confidence.copy())
-        correct =  np.array(correct.copy())
-        calib = calib_err(confidence=confidence, correct=correct, p='2')
-        calib_scores.append(calib)
-        corruption_accs.append(acc)
-        print(corruption,np.round(calib,4),np.round(acc,4))
+            # acc, confidence, correct
+            acc = num_correct / len(test_loader.dataset)
+            confidence = np.array(confidence.copy())
+            correct =  np.array(correct.copy())
+            calib = calib_err(confidence=confidence, correct=correct, p='2')
+            calib_scores.append(calib)
+            corruption_accs.append(acc)
+            print("\t =>{}, {}, Calib Err: {}, Acc: {}".format(corruption,sev,np.round(calib,4),np.round(acc,4)))
     acc = np.mean(corruption_accs)
     calib_score = np.mean(calib_scores)
+    print("Average Calibration: {} Average Corruption: {}".format(calib_score,acc))
     return acc, calib_score
+
+# def test_cal(net, test_data, args):
+#     concat = lambda x: np.concatenate(x, axis=0)
+#     to_np = lambda x: x.data.to('cpu').numpy()
+
+#     corruption_accs = []
+#     calib_scores = []
+#     corrs = CBAR_CORRUPTIONS if 'Bar' in args.corruption_path else CORRUPTIONS
+#     for corruption in corrs:
+#         confidence = []
+#         correct = []
+#         # Reference to original data is mutated
+#         test_data.data = np.load(args.corruption_path + corruption + '.npy')
+#         test_data.targets = torch.LongTensor(np.load(args.corruption_path+ 'labels.npy'))
+
+#         test_loader = torch.utils.data.DataLoader(
+#             test_data,
+#             batch_size=args.eval_batch_size,
+#             shuffle=False,
+#             num_workers=args.num_workers,
+#             pin_memory=True)
+
+#         num_correct = 0
+#         with torch.no_grad():
+#             for batch_idx, (data, target) in enumerate(test_loader):
+#                 data, target = data.cuda(), target.cuda()
+
+#                 output = net(data)
+
+#                 # accuracy
+#                 pred = output.data.max(1)[1]
+#                 num_correct += pred.eq(target.data).sum().item()
+
+#                 confidence.extend(to_np(F.softmax(output, dim=1).max(1)[0]).squeeze().tolist())
+#                 pred = output.data.max(1)[1]
+#                 correct.extend(pred.eq(target).to('cpu').numpy().squeeze().tolist())
+
+#         # acc, confidence, correct
+#         acc = num_correct / len(test_loader.dataset)
+#         confidence = np.array(confidence.copy())
+#         correct =  np.array(correct.copy())
+#         calib = calib_err(confidence=confidence, correct=correct, p='2')
+#         calib_scores.append(calib)
+#         corruption_accs.append(acc)
+#         print(corruption,np.round(calib,4),np.round(acc,4))
+#     acc = np.mean(corruption_accs)
+#     calib_score = np.mean(calib_scores)
+#     return acc, calib_score
 
 def test_ood(net,test_loader, args):
     net.eval()
     ood_num_examples = len(test_loader.dataset) // 5
     expected_ap = ood_num_examples / (ood_num_examples + len(test_loader.dataset))
-    normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225])
+
+    img_size = 224
+    use_clip_mean = "clip" in args.arch.lower()
+    if use_clip_mean:
+        normalize = transforms.Normalize(norm_dict["clip_mean"], norm_dict["clip_std"])
+    else:
+        normalize = transforms.Normalize(norm_dict[args.dataset+"_mean"], norm_dict[args.dataset + "_std"]) 
+    
     concat = lambda x: np.concatenate(x, axis=0)
     to_np = lambda x: x.data.cpu().numpy()
     auroc_list, aupr_list, fpr_list = [], [], []
-    
-    # /////////////// In Score /////////////// 
-    in_score, right_score, wrong_score = get_ood_scores(net=net, 
-        loader=test_loader, 
+
+    # /////////////// In Score ///////////////
+    in_score, right_score, wrong_score = get_ood_scores(net=net,
+        loader=test_loader,
         ood_num_examples=ood_num_examples,
         args=args,
         in_dist=True)
-    
+
     # /////////////// Gaussian Noise ///////////////
 
     dummy_targets = torch.ones(ood_num_examples * args.num_to_avg)
     ood_data = torch.from_numpy(np.float32(np.clip(
-        np.random.normal(size=(ood_num_examples * args.num_to_avg, 3, 32, 32), scale=0.5), -1, 1)))
+        np.random.normal(size=(ood_num_examples * args.num_to_avg, 3, img_size, img_size), scale=0.5), -1, 1)))
     ood_data = torch.utils.data.TensorDataset(ood_data, dummy_targets)
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True,
                                             num_workers=args.prefetch, pin_memory=True)
@@ -143,27 +198,27 @@ def test_ood(net,test_loader, args):
     print('\n\nGaussian Noise (sigma = 0.5) Detection')
     auroc, aupr, fpr = get_and_print_results(net=net,ood_loader = ood_loader,
         ood_num_examples=ood_num_examples,
-        in_score=in_score, 
+        in_score=in_score,
         args=args)
     auroc_list.append(auroc); aupr_list.append(aupr); fpr_list.append(fpr)
     # /////////////// Rademacher Noise ///////////////
 
     dummy_targets = torch.ones(ood_num_examples * args.num_to_avg)
     ood_data = torch.from_numpy(np.random.binomial(
-        n=1, p=0.5, size=(ood_num_examples * args.num_to_avg, 3, 32, 32)).astype(np.float32)) * 2 - 1
+        n=1, p=0.5, size=(ood_num_examples * args.num_to_avg, 3, img_size, img_size)).astype(np.float32)) * 2 - 1
     ood_data = torch.utils.data.TensorDataset(ood_data, dummy_targets)
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True)
 
     print('\n\nRademacher Noise Detection')
     auroc, aupr, fpr = get_and_print_results(net=net,ood_loader = ood_loader,
         ood_num_examples=ood_num_examples,
-        in_score=in_score, 
+        in_score=in_score,
         args=args)
     auroc_list.append(auroc); aupr_list.append(aupr); fpr_list.append(fpr)
 
     # /////////////// Blob ///////////////
 
-    ood_data = np.float32(np.random.binomial(n=1, p=0.7, size=(ood_num_examples * args.num_to_avg, 32, 32, 3)))
+    ood_data = np.float32(np.random.binomial(n=1, p=0.7, size=(ood_num_examples * args.num_to_avg, img_size, img_size, 3)))
     for i in range(ood_num_examples * args.num_to_avg):
         ood_data[i] = gblur(ood_data[i], sigma=1.5, multichannel=False)
         ood_data[i][ood_data[i] < 0.75] = 0.0
@@ -177,14 +232,14 @@ def test_ood(net,test_loader, args):
     print('\n\nBlob Detection')
     auroc, aupr, fpr = get_and_print_results(net=net,ood_loader = ood_loader,
         ood_num_examples=ood_num_examples,
-        in_score=in_score, 
+        in_score=in_score,
         args=args)
     auroc_list.append(auroc); aupr_list.append(aupr); fpr_list.append(fpr)
 
     # /////////////// Textures ///////////////
     # Textures should be part of TorchVision in the next release.
     ood_data = DTD(root="/p/lustre1/trivedi1/vision_data",
-                                transform=transforms.Compose([transforms.Resize(32), transforms.CenterCrop(32),
+                                transform=transforms.Compose([transforms.Resize(256), transforms.CenterCrop(img_size),
                                                     transforms.ToTensor(), normalize]),
                                 split='test',download=True)
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True,
@@ -193,7 +248,7 @@ def test_ood(net,test_loader, args):
     print('\n\nTexture Detection')
     auroc, aupr, fpr = get_and_print_results(net=net,ood_loader = ood_loader,
         ood_num_examples=ood_num_examples,
-        in_score=in_score, 
+        in_score=in_score,
         args=args)
     auroc_list.append(auroc); aupr_list.append(aupr); fpr_list.append(fpr)
 
@@ -201,7 +256,7 @@ def test_ood(net,test_loader, args):
 
     ood_data = torchvision.datasets.SVHN(root = "/p/lustre1/trivedi1/vision_data/SVHN",
         split='test',
-        transform = transforms.Compose([transforms.Resize(32), transforms.ToTensor(), normalize]),
+        transform = transforms.Compose([transforms.Resize(img_size), transforms.ToTensor(), normalize]),
         download=True)
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True,
                                             num_workers=args.prefetch, pin_memory=True)
@@ -209,7 +264,7 @@ def test_ood(net,test_loader, args):
     print('\n\nSVHN Detection')
     auroc, aupr, fpr = get_and_print_results(net=net,ood_loader = ood_loader,
         ood_num_examples=ood_num_examples,
-        in_score=in_score, 
+        in_score=in_score,
         args=args)
     auroc_list.append(auroc); aupr_list.append(aupr); fpr_list.append(fpr)
 
@@ -217,21 +272,21 @@ def test_ood(net,test_loader, args):
 
     #use an ImageFolder.
     ood_data = torchvision.datasets.ImageFolder(root='/p/lustre1/trivedi1/vision_data/Places69',
-        transform = transforms.Compose([transforms.Resize(32), transforms.ToTensor(), normalize]))
+        transform = transforms.Compose([transforms.Resize(img_size), transforms.ToTensor(), normalize]))
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True,
                                             num_workers=args.prefetch, pin_memory=True)
 
     print('\n\nPlaces69 Detection')
     auroc, aupr, fpr = get_and_print_results(net=net,ood_loader = ood_loader,
         ood_num_examples=ood_num_examples,
-        in_score=in_score, 
+        in_score=in_score,
         args=args)
     auroc_list.append(auroc); aupr_list.append(aupr); fpr_list.append(fpr)
 
     # /////////////// LSUN ///////////////
     ood_data = torchvision.datasets.LSUN(root="/p/lustre1/trivedi1/compnets/lsun/",
         classes='test',
-        transform=transforms.Compose([transforms.Resize(32), transforms.CenterCrop(32),
+        transform=transforms.Compose([transforms.Resize(256), transforms.CenterCrop(img_size),
                                                     transforms.ToTensor(), normalize])
         )
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True,
@@ -240,7 +295,7 @@ def test_ood(net,test_loader, args):
     print('\n\nLSUN Detection')
     auroc, aupr, fpr = get_and_print_results(net=net,ood_loader = ood_loader,
         ood_num_examples=ood_num_examples,
-        in_score=in_score, 
+        in_score=in_score,
         args=args)
     auroc_list.append(auroc); aupr_list.append(aupr); fpr_list.append(fpr)
 
@@ -248,10 +303,10 @@ def test_ood(net,test_loader, args):
     avg_aupr = np.mean(aupr_list)
     avg_fpr = np.mean(fpr_list)
     print('\n\nAverage OOD Detection')
-    print_measures_ood(auroc = avg_auroc, 
-        aupr = avg_aupr, 
-        fpr = avg_fpr, 
-        method_name=args.save_name, 
+    print_measures_ood(auroc = avg_auroc,
+        aupr = avg_aupr,
+        fpr = avg_fpr,
+        method_name=args.save_name,
         recall_level=0.95)
     return avg_auroc,avg_aupr,avg_fpr
 
@@ -260,15 +315,18 @@ def test_p(net,args):
         num_classes=100
     elif args.dataset == 'cifar10':
         num_classes=10
+    elif "domainnet" in args.dataset.lower():
+        num_classes=40
     else:
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
-        exit() 
+        exit()
 
+    img_size=224
     flip_list = []
     for p in ['gaussian_noise', 'shot_noise', 'motion_blur', 'zoom_blur',
             'spatter', 'brightness', 'translate', 'rotate', 'tilt', 'scale']:
-        
+
         dataset = torch.from_numpy(np.float32(np.load(os.path.join(args.perturb_path, p + '.npy')).transpose((0,1,4,2,3))))/255.
         loader = torch.utils.data.DataLoader(
             dataset, batch_size=25, shuffle=False, num_workers=2, pin_memory=True)
@@ -277,7 +335,7 @@ def test_p(net,args):
         with torch.no_grad():
             for data in loader:
                 num_vids = data.size(0)
-                data = data.view(-1,3,32,32).cuda()
+                data = data.view(-1,3,img_size,img_size).cuda()
                 output = net(data * 2 - 1)
 
                 for vid in output.view(num_vids, -1, num_classes):
@@ -314,7 +372,7 @@ def load_dp_ckpt(model,pretrained_ckpt):
 
 def arg_parser_eval():
     parser = argparse.ArgumentParser(
-    description='Evaluates a CIFAR Classifier',
+    description='Evaluates a Safety Metrics',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         "--seed",
@@ -330,9 +388,9 @@ def arg_parser_eval():
     parser.add_argument(
         '--corruption_path',
         type=str,
-        default='/p/lustre1/trivedi1/vision_data/CIFAR-10-C/',
+        default='/p/lustre1/trivedi1/vision_data/Domainnet-Corrupted/',
         required=False,
-        help='Path to CIFAR and CIFAR-C directories')
+        help='Path to Corrupted Domainnet')
     parser.add_argument(
         '--perturb_path',
         type=str,
@@ -373,17 +431,17 @@ def arg_parser_eval():
         '--prefetch',action='store_true', help='Prefetch Ood Loader')
     parser.add_argument('--ood_datasets', nargs='*', help='OOD datasets', required=False)
     args = parser.parse_args()
-    return args 
+    return args
 
 
 def main():
     """
     Load the saved checkpoint.
-    Load clean CIFAR. 
+    Load clean CIFAR.
 
     Provide options to perform the other ML safety evaluations.
     We will need to use their checkpoints.
-    """ 
+    """
     args = arg_parser_eval()
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -398,34 +456,34 @@ def main():
         net.reset_classifier(NUM_CLASSES_DICT[args.dataset])
 
         if "moco" in args.ckpt:
-            #Can't use data-parallel for feature extractor 
+            #Can't use data-parallel for feature extractor
             net = load_moco_ckpt(model=net, pretrained_ckpt=args.ckpt).cuda()
         else:
-            net = load_dp_ckpt(net,pretrained_ckpt=args.ckpt).cuda() #do this so there is not a conflict. 
+            net = load_dp_ckpt(net,pretrained_ckpt=args.ckpt).cuda() #do this so there is not a conflict.
     if 'clip' in args.arch:
         encoder_type = args.arch.split("-")[-1]
         print("\t => Clip Encoder: ",encoder_type)
-        print("\t => Using Default Clip Ckpt!!") 
+        print("\t => Using Default Clip Ckpt!!")
         net = ClipModel(model_name=encoder_type,scratch=False)
         net.reset_classifier(NUM_CLASSES_DICT[args.dataset])
         net = load_dp_ckpt(net,pretrained_ckpt=args.ckpt).cuda()
-    use_clip_mean = "clip" in args.arch 
+    use_clip_mean = "clip" in args.arch
 
     """
     Get Datasets
     """
 
-    train_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean) 
-    test_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean) 
-    clean_train_loader, clean_test_loader = get_dataloaders(args=args, 
+    train_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+    test_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+    clean_train_loader, clean_test_loader = get_dataloaders(args=args,
         train_aug="test",
-        test_aug="test", 
+        test_aug="test",
         train_transform=train_transform,
         test_transform=test_transform,
-        use_clip_mean=use_clip_mean) 
+        use_clip_mean=use_clip_mean)
 
 
-    print("=> Num GPUS: ", torch.cuda.device_count()) 
+    print("=> Num GPUS: ", torch.cuda.device_count())
     # Fix dataloader worker issue
     # https://github.com/pytorch/pytorch/issues/5059
     def wif(id):
@@ -436,11 +494,11 @@ def main():
 
     if "clip" in args.arch:
         safety_logs_prefix = "/p/lustre1/trivedi1/compnets/classifier_playground/clip_safety_logs/"
-    else: 
+    else:
         safety_logs_prefix = "/p/lustre1/trivedi1/compnets/classifier_playground/safety_logs/"
-    save_name = args.save_name 
+    save_name = args.save_name
     print("=> Save Name: ",save_name)
-    
+
     """
     Clean Acc.
     """
@@ -451,7 +509,7 @@ def main():
             shuffle=False,
             num_workers=args.num_workers,
             pin_memory=True)
-    
+
         clean_err, clean_acc = test(net=net,test_loader=clean_train_loader,adv=None)
         print("=> Clean Train Acc: {0:.4f}".format(clean_acc))
         with open("{}/clean_train_acc.csv".format(safety_logs_prefix),"a") as f:
@@ -459,12 +517,12 @@ def main():
             f.write(write_str)
         del clean_train_loader
         del clean_train_dataset
-        clean_test_err, clean_test_acc = test(net=net,test_loader=clean_test_loader,adv=None)
+        clean_test_loss, clean_test_acc = test(net=net,test_loader=clean_test_loader,adv=None)
         print("=> Clean Test Acc: {0:.4f}".format(clean_test_acc))
         with open("{}/clean_test_acc.csv".format(safety_logs_prefix),"a") as f:
             write_str = "{save_name},{acc:.4f}\n".format(save_name = save_name,acc = clean_test_acc)
             f.write(write_str)
-    
+
     """
     Eval OOD.
     """
@@ -473,17 +531,17 @@ def main():
             ood_test_loader = get_oodloader(args,dataset=ood_dataset_name,use_clip_mean=use_clip_mean)
             _,ood_acc = test(net=net,test_loader=ood_test_loader,adv=None)
             print("=> OOD, {dataset_name}, Acc: {acc:.4f}".format(dataset_name= ood_dataset_name, acc = ood_acc))
-            del ood_test_loader  
+            del ood_test_loader
             with open("{}/ood_acc.csv".format(safety_logs_prefix),"a") as f:
                 write_str = "{save_name},{dataset_name},{acc:.4f}\n".format(save_name = save_name,dataset_name = ood_dataset_name, acc = ood_acc)
                 f.write(write_str)
-     
+
     """
     Anamoly Detection.
     """
     if args.eval_all or args.eval_O:
         auroc, aupr, fpr = test_ood(net,clean_test_loader, args)
-        print("=> Anamoly AUROC: {0:.4f} -- AUPR: {1:.4f} -- FPR: {2:.4f}".format(auroc,aupr,fpr))        
+        print("=> Anamoly AUROC: {0:.4f} -- AUPR: {1:.4f} -- FPR: {2:.4f}".format(auroc,aupr,fpr))
         with open("{}/anamoly_detection.csv".format(safety_logs_prefix),"a") as f:
             write_str = "{save_name},{auroc:.4f},{aupr:.4f},{fpr:.4f}\n".format(save_name = save_name,auroc= auroc,aupr= aupr, fpr= fpr)
             f.write(write_str)
@@ -494,7 +552,7 @@ def main():
     # if args.eval_all or args.eval_A:
     #     adversary = PGD(epsilon=2./255, num_steps=20, step_size=0.5/255).cuda()
     #     adv_test_loss, adv_test_acc = test(net, clean_test_loader, adv=adversary)
-    #     print("=> Adv. Test Loss: {0:.4f} -- Adv. Test Acc: {1:.4f}".format(adv_test_loss,adv_test_acc))        
+    #     print("=> Adv. Test Loss: {0:.4f} -- Adv. Test Acc: {1:.4f}".format(adv_test_loss,adv_test_acc))
     #     with open("{}/adversaries.csv".format(safety_logs_prefix),"a") as f:
     #         write_str = "{save_name},{adv_test:.4f}\n".format(save_name=save_name,adv_test = adv_test_acc)
     #         f.write(write_str)
@@ -503,7 +561,7 @@ def main():
     Corruptions Accuracy
     """
     if args.eval_all or args.eval_C:
-        test_c_acc = test_c(net, clean_test_dataset, args)
+        test_c_acc = test_c_domainnet(net, args)
         print("=> Corruption Test Acc: {0:.4f}".format(test_c_acc))
         with open("{}/corruptions.csv".format(safety_logs_prefix),"a") as f:
             write_str = "{save_name},{acc:.4f}\n".format(save_name=save_name,acc=test_c_acc)
@@ -514,22 +572,21 @@ def main():
     """
     if args.eval_all or args.eval_Cal:
         # Computed on CIFAR-100-C
-        _, calib_err = test_cal(net, clean_test_dataset, args)
+        _, calib_err = test_cal_domainnet(net, clean_test_loader, args)
         print("=> Calib. Err.: {0:.4f}".format(calib_err))
         with open("{}/calibration.csv".format(safety_logs_prefix),"a") as f:
             write_str = "{save_name},{calib:.4f}\n".format(save_name=save_name,calib=calib_err)
             f.write(write_str)
-    
+
     """
     Consistency Error.
     """
     if args.eval_all or args.eval_P:
         acc_P = test_p(net,args)
-        print("=> Mean Flip Prob: {0:.4f}".format(acc_P)) 
+        print("=> Mean Flip Prob: {0:.4f}".format(acc_P))
         with open("{}/consistency.csv".format(safety_logs_prefix),"a") as f:
             write_str = "{save_name},{consist:.4f}\n".format(save_name=save_name,consist=acc_P)
             f.write(write_str)
-
 
 if __name__ == '__main__':
     main()

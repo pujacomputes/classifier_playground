@@ -19,6 +19,7 @@ Wrapped into function so we
 can call it for fine-tuning too.
 """
 PREFIX="/p/lustre1/trivedi1/compnets/classifier_playground/"
+#PREFIX="/p/lustre1/trivedi1/compnets/classifier_playground/"
 def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_epoch,end_epoch,train_loader, test_loader, train_aug, train_transform):
 
     use_clip_mean = "clip" in args.arch
@@ -39,9 +40,13 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
         criterion = SoftTargetCrossEntropy()
     else:
         criterion = torch.nn.CrossEntropyLoss()
+    if protocol in ['lp'] or not args.train_batchnorm: #note: protocol re-specified in the main function as lp or ft ONLY. 
+        print("****** Freezing Batchnorm Parameters ******") 
+    else:
+        print("****** Updating Batchnorm Parameters ****") 
     for epoch in range(start_epoch, end_epoch):
         begin_time = time.time() 
-        if protocol in ['lp']: #note: protocol re-specified in the main function as lp or ft ONLY. 
+        if protocol in ['lp'] or not args.train_batchnorm: #note: protocol re-specified in the main function as lp or ft ONLY. 
             net.eval()
         else:
             net.train()
@@ -70,6 +75,7 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
             loss_ema = loss_ema * 0.9 + float(loss) * 0.1
 
         test_loss, test_acc = test(net, test_loader)
+        # train_loss, train_acc = test(net, train_loader)
         
         is_best = test_acc > best_acc
         best_acc = max(test_acc, best_acc)
@@ -169,7 +175,8 @@ def main():
         + "_" + str(args.ft_learning_rate) \
         + "_" + str(args.ft_decay) \
         + "_" + str(args.l2sp_weight) \
-        + "_" + str(args.seed)
+        + "_" + str(args.seed) \
+        + "_" + str(args.train_batchnorm)
     
     print("******************************")
     print(save_name)
@@ -190,7 +197,7 @@ def main():
     """
     lp_train_acc, lp_test_acc, lp_train_loss, lp_test_loss = -1,-1,-1,-1
     ft_train_acc, ft_test_acc, ft_train_loss, ft_test_loss = -1,-1,-1,-1
-    if args.protocol in ['lp','lp+ft']:
+    if args.protocol in ['lp','lp+ft','vatlp+ft']:
 
         log_path = os.path.join("{}/logs".format(PREFIX),
                             "lp+" + save_name + '_training_log.csv')
@@ -218,7 +225,7 @@ def main():
         Passing only the fc layer to the optimizer. 
         This prevents lower layers from being effected by weight decay.
         """
-        if args.resume_lp_ckpt.lower() != "none" and args.protocol == 'lp+ft':
+        if args.resume_lp_ckpt.lower() != "none" and args.protocol in ['lp+ft','vatlp+ft']:
             print("****************************")
             print("Loading Saved LP Ckpt")
             ckpt = torch.load(args.resume_lp_ckpt)
@@ -293,7 +300,7 @@ def main():
     """
     Performing Fine-tuing Training!
     """
-    if args.protocol in ['lp+ft','ft','lpfrz+ft']:
+    if args.protocol in ['lp+ft','ft','lpfrz+ft','vatlp+ft']:
         if args.protocol == 'lpfrz+ft':
             print("=> Freezing Classifier, Unfreezing All Other Layers!")
             net = unfreeze_layers_for_lpfrz_ft(net)
@@ -305,10 +312,16 @@ def main():
         """
         Select FT Augmentation Scheme.
         """
-        if args.protocol == 'lp+ft' and args.resume_lp_ckpt.lower() == 'none':
+        if args.protocol in ['lp+ft','vatlp+ft'] and args.resume_lp_ckpt.lower() == 'none':
             del train_loader, test_loader, optimizer, scheduler, train_transform, test_transform
-        ft_train_transform = get_transform(dataset=args.dataset, SELECTED_AUG=args.ft_train_aug,use_clip_mean=use_clip_mean) 
-        ft_test_transform = get_transform(dataset=args.dataset, SELECTED_AUG=args.ft_test_aug,use_clip_mean=use_clip_mean) 
+        ft_train_transform = get_transform(dataset=args.dataset, 
+            SELECTED_AUG=args.ft_train_aug,
+            use_clip_mean=use_clip_mean)
+
+        ft_test_transform = get_transform(dataset=args.dataset, 
+            SELECTED_AUG=args.ft_test_aug,
+            use_clip_mean=use_clip_mean)
+             
         ft_train_loader, ft_test_loader = get_dataloaders(args=args, 
             train_aug=args.ft_train_aug,
             test_aug=args.ft_test_aug, 
@@ -325,7 +338,7 @@ def main():
             momentum=args.ft_momentum,
             weight_decay=args.ft_decay,
             nesterov=True)
-        
+         
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
             T_max = args.ft_epochs,

@@ -21,6 +21,8 @@ from skimage.filters import gaussian as gblur
 from PIL import Image as PILImage
 from dtd_dataset import DTD
 from cifar10p1 import CIFAR10p1
+from torchsummary import summary
+
 def test(net, test_loader, adv=None):
     """Evaluate network on given dataset."""
     net.eval()
@@ -113,13 +115,15 @@ def test_cal(net, test_data, args):
     return acc, calib_score
 
 def test_ood(net,test_loader, args):
+    net.eval()
     ood_num_examples = len(test_loader.dataset) // 5
     expected_ap = ood_num_examples / (ood_num_examples + len(test_loader.dataset))
     normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225])
     concat = lambda x: np.concatenate(x, axis=0)
     to_np = lambda x: x.data.cpu().numpy()
     auroc_list, aupr_list, fpr_list = [], [], []
-    
+
+    img_size=224 
     # /////////////// In Score /////////////// 
     in_score, right_score, wrong_score = get_ood_scores(net=net, 
         loader=test_loader, 
@@ -131,7 +135,7 @@ def test_ood(net,test_loader, args):
 
     dummy_targets = torch.ones(ood_num_examples * args.num_to_avg)
     ood_data = torch.from_numpy(np.float32(np.clip(
-        np.random.normal(size=(ood_num_examples * args.num_to_avg, 3, 32, 32), scale=0.5), -1, 1)))
+        np.random.normal(size=(ood_num_examples * args.num_to_avg, 3, img_size, img_size), scale=0.5), -1, 1)))
     ood_data = torch.utils.data.TensorDataset(ood_data, dummy_targets)
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True,
                                             num_workers=args.prefetch, pin_memory=True)
@@ -146,7 +150,7 @@ def test_ood(net,test_loader, args):
 
     dummy_targets = torch.ones(ood_num_examples * args.num_to_avg)
     ood_data = torch.from_numpy(np.random.binomial(
-        n=1, p=0.5, size=(ood_num_examples * args.num_to_avg, 3, 32, 32)).astype(np.float32)) * 2 - 1
+        n=1, p=0.5, size=(ood_num_examples * args.num_to_avg, 3, img_size, img_size)).astype(np.float32)) * 2 - 1
     ood_data = torch.utils.data.TensorDataset(ood_data, dummy_targets)
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True)
 
@@ -159,7 +163,7 @@ def test_ood(net,test_loader, args):
 
     # /////////////// Blob ///////////////
 
-    ood_data = np.float32(np.random.binomial(n=1, p=0.7, size=(ood_num_examples * args.num_to_avg, 32, 32, 3)))
+    ood_data = np.float32(np.random.binomial(n=1, p=0.7, size=(ood_num_examples * args.num_to_avg, img_size, img_size, 3)))
     for i in range(ood_num_examples * args.num_to_avg):
         ood_data[i] = gblur(ood_data[i], sigma=1.5, multichannel=False)
         ood_data[i][ood_data[i] < 0.75] = 0.0
@@ -180,7 +184,7 @@ def test_ood(net,test_loader, args):
     # /////////////// Textures ///////////////
     # Textures should be part of TorchVision in the next release.
     ood_data = DTD(root="/p/lustre1/trivedi1/vision_data",
-                                transform=transforms.Compose([transforms.Resize(32), transforms.CenterCrop(32),
+                                transform=transforms.Compose([transforms.Resize((256,256)), transforms.CenterCrop(img_size),
                                                     transforms.ToTensor(), normalize]),
                                 split='test',download=True)
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True,
@@ -197,7 +201,7 @@ def test_ood(net,test_loader, args):
 
     ood_data = torchvision.datasets.SVHN(root = "/p/lustre1/trivedi1/vision_data/SVHN",
         split='test',
-        transform = transforms.Compose([transforms.Resize(32), transforms.ToTensor(), normalize]),
+        transform = transforms.Compose([transforms.Resize((img_size,img_size)), transforms.ToTensor(), normalize]),
         download=True)
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True,
                                             num_workers=args.prefetch, pin_memory=True)
@@ -213,7 +217,7 @@ def test_ood(net,test_loader, args):
 
     #use an ImageFolder.
     ood_data = torchvision.datasets.ImageFolder(root='/p/lustre1/trivedi1/vision_data/Places69',
-        transform = transforms.Compose([transforms.Resize(32), transforms.ToTensor(), normalize]))
+        transform = transforms.Compose([transforms.Resize((img_size,img_size)), transforms.ToTensor(), normalize]))
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True,
                                             num_workers=args.prefetch, pin_memory=True)
 
@@ -227,7 +231,7 @@ def test_ood(net,test_loader, args):
     # /////////////// LSUN ///////////////
     ood_data = torchvision.datasets.LSUN(root="/p/lustre1/trivedi1/compnets/lsun/",
         classes='test',
-        transform=transforms.Compose([transforms.Resize(32), transforms.CenterCrop(32),
+        transform=transforms.Compose([transforms.Resize((256,256)), transforms.CenterCrop(img_size),
                                                     transforms.ToTensor(), normalize])
         )
     ood_loader = torch.utils.data.DataLoader(ood_data, batch_size=args.eval_batch_size, shuffle=True,
@@ -339,7 +343,7 @@ def arg_parser_eval():
         '--arch',
         type=str,
         default='resnet50',
-        choices=['resnet50','wrn', 'densenet', 'resnext'],
+        choices=['resnet50','wrn', 'densenet', 'resnext','clip-RN50'],
         help='Choose architecture.')
     parser.add_argument(
         '--ckpt',
@@ -365,6 +369,7 @@ def arg_parser_eval():
         '--num_to_avg',default=1, type=int, help='Num to Avg.')
     parser.add_argument(
         '--prefetch',action='store_true', help='Prefetch Ood Loader')
+    parser.add_argument('--ood_datasets', nargs='*', help='OOD datasets', required=False)
     args = parser.parse_args()
     return args 
 
@@ -385,7 +390,7 @@ def main():
 
     normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225])
     test_transform = transforms.Compose(
-        [transforms.Resize(224),transforms.ToTensor(), normalize])
+        [transforms.Resize((224,224)),transforms.ToTensor(), normalize])
     
     NUM_CLASSES = 10
     clean_test_dataset = torchvision.datasets.CIFAR10(root="/p/lustre1/trivedi1/vision_data",
@@ -420,7 +425,9 @@ def main():
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=True)
-    
+
+    summary(net, (3, 224, 224))    
+    pdb.set_trace()
 
     safety_logs_prefix = "/p/lustre1/trivedi1/compnets/classifier_playground/safety_logs/"
     save_name = args.save_name 
