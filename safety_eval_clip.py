@@ -58,7 +58,7 @@ def test_c_domainnet(net, args):
     for corruption in corrs:
         for sev in range(1,6):
             corrupted_loader = get_corrupted_loader(args,
-                dataset="domainnet-real",
+                dataset="domainnet-sketch",
                 corruption_name=corruption,
                 severity=sev,
                 use_clip_mean=use_clip_mean)
@@ -83,7 +83,7 @@ def test_cal_domainnet(net, test_data, args):
             confidence = []
             correct = []
             test_loader = get_corrupted_loader(args,
-                dataset="domainnet-real",
+                dataset="domainnet-sketch",
                 corruption_name=corruption,
                 severity=sev,
                 use_clip_mean=use_clip_mean)
@@ -493,7 +493,7 @@ def main():
         np.random.seed(ss.generate_state(4))
 
     if "clip" in args.arch:
-        safety_logs_prefix = "/p/lustre1/trivedi1/compnets/classifier_playground/clip_safety_logs/"
+        safety_logs_prefix = "/usr/workspace/trivedi1/clip_experiments_aaai/clip_safety_logs"
     else:
         safety_logs_prefix = "/p/lustre1/trivedi1/compnets/classifier_playground/safety_logs/"
     save_name = args.save_name
@@ -503,20 +503,12 @@ def main():
     Clean Acc.
     """
     if args.eval_all or args.eval_Clean:
-        clean_train_loader = torch.utils.data.DataLoader(
-            clean_train_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True)
-
         clean_err, clean_acc = test(net=net,test_loader=clean_train_loader,adv=None)
         print("=> Clean Train Acc: {0:.4f}".format(clean_acc))
         with open("{}/clean_train_acc.csv".format(safety_logs_prefix),"a") as f:
             write_str = "{save_name},{acc:.4f}\n".format(save_name = save_name,acc = clean_acc)
             f.write(write_str)
         del clean_train_loader
-        del clean_train_dataset
         clean_test_loss, clean_test_acc = test(net=net,test_loader=clean_test_loader,adv=None)
         print("=> Clean Test Acc: {0:.4f}".format(clean_test_acc))
         with open("{}/clean_test_acc.csv".format(safety_logs_prefix),"a") as f:
@@ -563,7 +555,7 @@ def main():
     if args.eval_all or args.eval_C:
         test_c_acc = test_c_domainnet(net, args)
         print("=> Corruption Test Acc: {0:.4f}".format(test_c_acc))
-        with open("{}/corruptions.csv".format(safety_logs_prefix),"a") as f:
+        with open("{}/corruptions-sketch.csv".format(safety_logs_prefix),"a") as f:
             write_str = "{save_name},{acc:.4f}\n".format(save_name=save_name,acc=test_c_acc)
             f.write(write_str)
 
@@ -574,7 +566,7 @@ def main():
         # Computed on CIFAR-100-C
         _, calib_err = test_cal_domainnet(net, clean_test_loader, args)
         print("=> Calib. Err.: {0:.4f}".format(calib_err))
-        with open("{}/calibration.csv".format(safety_logs_prefix),"a") as f:
+        with open("{}/calibration-sketch.csv".format(safety_logs_prefix),"a") as f:
             write_str = "{save_name},{calib:.4f}\n".format(save_name=save_name,calib=calib_err)
             f.write(write_str)
 

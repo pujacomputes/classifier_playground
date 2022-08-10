@@ -111,6 +111,7 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
         # else:
         # _,ood_acc = test(net,ood_loader)
         ood_acc = -1
+        # _,ood_acc = test(net,ood_loader)
         print(
             'Epoch {0:3d} | Time {1:5d} | Train Loss {2:.4f} | Test Loss {3:.3f} | L2 Loss {4:.3f} |'
             ' Test Error {5:.2f} | OOD Error {6:.2f}'

@@ -510,7 +510,7 @@ VALID_VERSIONS = ['full', 'sentry']
 ROOT = '/p/lustre1/trivedi1/vision_data/DomainNet'
 SENTRY_SPLITS_ROOT = '/p/lustre1/trivedi1/vision_data/SENTRY_SPLITS' 
 
-def load_dataset_domainnet(domains=['real'], split='test', version='sentry'):
+def load_dataset_domainnet(domains=['sketch'], split='test', version='sentry'):
     if len(domains) == 1 and domains[0] == 'all':
         if version == 'sentry':
             domains = SENTRY_DOMAINS
@@ -695,7 +695,7 @@ def save_distorted(method=gaussian_noise,env='photo'):
         #open the image from the list of test images.
         #distort the image.
         #save the image. 
-        distorted_dataset= DomainNet(domain='real', 
+        distorted_dataset= DomainNet(domain='sketch', 
                 split='test',
                 root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
                 method=method,
@@ -717,7 +717,7 @@ import argparse
 
 def main():
     parser = argparse.ArgumentParser(description="Create Corrupted")
-    parser.add_argument("--env", type=str, default='real')
+    parser.add_argument("--env", type=str, default='sketch')
     parser.add_argument('--corruptions', nargs='*', help='Select Corruptions', required=False)
     args = parser.parse_args()
 
