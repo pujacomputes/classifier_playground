@@ -14,6 +14,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 NUM_CLASSES_DICT = {
     'cifar10':10,
+    'cifar100':100,
     'stl10':10,
     'none':-1,
     'STL10':10,
@@ -27,6 +28,8 @@ NUM_CLASSES_DICT = {
 norm_dict = {
     'cifar10_mean':[0.485, 0.456, 0.406],
     'cifar10_std': [0.228, 0.224, 0.225],
+    'cifar100_mean':[0.485, 0.456, 0.406],
+    'cifar100_std': [0.228, 0.224, 0.225],
     'stl10_mean':[0.485, 0.456, 0.406],
     'stl10_std': [0.228, 0.224, 0.225],
     'clip_mean':[0.48145466, 0.4578275, 0.40821073],
@@ -84,6 +87,12 @@ def get_oodloader(args,dataset,use_clip_mean=False):
             root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet/",
             transform=transform,
             verbose=False) 
+    elif dataset == "cifar100":
+        """
+        There is not an OOD dataset for cifar100, 
+        so we are just going to return None.
+        """
+        return None 
     else:
         print("ERROR ERROR ERROR")
         print("Not Implemented Yet. Exiting")
@@ -242,7 +251,7 @@ def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
        transform = transforms.Compose([resize, transform,transforms.ToTensor(),normalize]) 
     return transform
 
-def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use_ft=False,use_clip_mean=False):
+def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use_ft=False,use_clip_mean=False,return_datasets=False):
     if train_aug not in ['mixup','cutmix','cutout']:
         #initialize the augmentation directly in the dataset
         if args.dataset == 'cifar10':
@@ -312,39 +321,43 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
         exit()
-         
-    # Fix dataloader worker issue
-    # https://github.com/pytorch/pytorch/issues/5059
-    def wif(id):
-        uint64_seed = torch.initial_seed()
-        ss = np.random.SeedSequence([uint64_seed])
-        # More than 128 bits (4 32-bit words) would be overkill.
-        np.random.seed(ss.generate_state(4))
 
-    if use_ft:
-        batch_size = args.ft_batch_size
-    else:
-        batch_size = args.batch_size
-    if train_aug in ['mixup','cutmix']:
-        drop_last = True #mixup/cutmix needs an even number of batch samples
-    else:
-        drop_last = False
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=args.num_workers,
-        pin_memory=True,
-        worker_init_fn=wif,
-        drop_last=drop_last)
+    if not return_datasets: 
+        # Fix dataloader worker issue
+        # https://github.com/pytorch/pytorch/issues/5059
+        def wif(id):
+            uint64_seed = torch.initial_seed()
+            ss = np.random.SeedSequence([uint64_seed])
+            # More than 128 bits (4 32-bit words) would be overkill.
+            np.random.seed(ss.generate_state(4))
 
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=args.eval_batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True)
-    return train_loader, test_loader
+        if use_ft:
+            batch_size = args.ft_batch_size
+        else:
+            batch_size = args.batch_size
+        if train_aug in ['mixup','cutmix']:
+            drop_last = True #mixup/cutmix needs an even number of batch samples
+        else:
+            drop_last = False
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=args.num_workers,
+            pin_memory=True,
+            worker_init_fn=wif,
+            drop_last=drop_last)
+
+        test_loader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=args.eval_batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True)
+        return train_loader, test_loader
+    else:
+        #this option is needed for CIFAR-C evaluation
+        return train_dataset, test_dataset
 
 def train(net, train_loader, optimizer, scheduler,transform=None,transform_name=None,protocol='lp',l2sp=False):
     """Train for one epoch."""
@@ -422,13 +435,13 @@ def arg_parser():
         '--dataset',
         type=str,
         default='cifar10',
-        choices=['cifar10','domainnet-sketch'])
+        choices=['cifar10','domainnet-sketch','cifar100'])
     
     parser.add_argument(
         '--eval_dataset',
         type=str,
         default='stl10',
-        choices=['stl10','cifar10.1','domainnet-painting','domainnet-real','domainnet-clipart','domainnet-all'])
+        choices=['stl10','cifar10.1','domainnet-painting','domainnet-real','domainnet-clipart','domainnet-all','cifar100'])
     
     parser.add_argument(
         '--arch',
