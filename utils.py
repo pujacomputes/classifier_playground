@@ -22,12 +22,18 @@ NUM_CLASSES_DICT = {
     'domainnet-art':40,
     'domainnet-real':40,
     'domainnet-painting':40,
+    'pairedCIFAR':10,
+    'blendedCIFAR':10
 
 }
 
 norm_dict = {
     'cifar10_mean':[0.485, 0.456, 0.406],
     'cifar10_std': [0.228, 0.224, 0.225],
+    'pairedcifar10_mean':[0.485, 0.456, 0.406],
+    'pairedcifar10_std': [0.228, 0.224, 0.225],
+    'blendedcifar10_mean':[0.485, 0.456, 0.406],
+    'blendedcifar10_std': [0.228, 0.224, 0.225],
     'cifar100_mean':[0.485, 0.456, 0.406],
     'cifar100_std': [0.228, 0.224, 0.225],
     'stl10_mean':[0.485, 0.456, 0.406],
@@ -435,13 +441,13 @@ def arg_parser():
         '--dataset',
         type=str,
         default='cifar10',
-        choices=['cifar10','domainnet-sketch','cifar100'])
+        choices=['cifar10','domainnet-sketch','cifar100','pairedCIFAR','blendedCIFAR'])
     
     parser.add_argument(
         '--eval_dataset',
         type=str,
         default='stl10',
-        choices=['stl10','cifar10.1','domainnet-painting','domainnet-real','domainnet-clipart','domainnet-all','cifar100'])
+        choices=['stl10','cifar10.1','domainnet-painting','domainnet-real','domainnet-clipart','domainnet-all','cifar100','pairedSTL','blendedSTL'])
     
     parser.add_argument(
         '--arch',
@@ -608,6 +614,10 @@ def arg_parser():
     parser.add_argument('--bn-eval-mode', dest='train_batchnorm', action='store_false')
     parser.set_defaults(train_batchnorm=True)
 
+    """
+    Simplicity Bias
+    """
+    parser.add_argument('--correlation_strength', type=float, default=0.89,help="How strong the correlation is for blended cifar-mnist")
     args = parser.parse_args()
     return args 
 

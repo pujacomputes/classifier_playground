@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from utils import get_transform, NUM_CLASSES_DICT, test,norm_dict 
 import pdb 
 import random
+from clip_model import ClipModel
 
 def arg_parser():
     parser = argparse.ArgumentParser(
@@ -22,7 +23,7 @@ def arg_parser():
         '--dataset_1',
         type=str,
         default='cifar10',
-        choices=['cifar10','stl10','STL10'])
+        choices=['cifar10','stl10','STL10','cifar100'])
     
     parser.add_argument(
         '--dataset_2',
@@ -129,7 +130,6 @@ def get_oodloader(args,dataset):
         pin_memory=True,
         worker_init_fn=wif) 
     return ood_loader
-
 
 def load_moco_ckpt(model,pretrained_ckpt):
     ckpt = torch.load(pretrained_ckpt)
@@ -251,6 +251,8 @@ def main():
     n1_d1_test_acc,n1_d1_train_acc,n1_d2_train_acc, n1_d2_test_acc = -1,-1,-1,-1
     n2_d1_test_acc,n2_d1_train_acc,n2_d2_train_acc, n2_d2_test_acc = -1,-1,-1,-1
     print("args.dataset_1",args.dataset_1) 
+    
+    use_clip_mean = "clip" in args.arch 
     """
     Create Model 1
     """
@@ -282,11 +284,14 @@ def main():
         net_2 = net_1 #if model 2 is not specified, use model 1 twice.
         m2_name = args.model_1_ckpt 
 
+    use_clip_mean_m2 = "clip" in args.model_2_ckpt
+    use_clip_mean_m1 = "clip" in args.model_1_ckpt
+
     """
     Create Dataloader 1
     """
-    d1_train_transform = get_transform(dataset=args.dataset_1, SELECTED_AUG=args.dataset_1_trainaug) 
-    d1_test_transform = get_transform(dataset=args.dataset_1, SELECTED_AUG=args.dataset_1_testaug) 
+    d1_train_transform = get_transform(dataset=args.dataset_1, SELECTED_AUG=args.dataset_1_trainaug,use_clip_mean=use_clip_mean_m1) 
+    d1_test_transform = get_transform(dataset=args.dataset_1, SELECTED_AUG=args.dataset_1_testaug,use_clip_mean=use_clip_mean_m1) 
     d1_train_loader, d1_test_loader = get_dataloaders(dataset=args.dataset_1,
         args=args, 
         train_aug=args.dataset_1_trainaug,
@@ -297,8 +302,9 @@ def main():
     Create (optional) Dataloader 2
     """
     if args.dataset_2.lower() != "none":
-        d2_train_transform = get_transform(dataset=args.dataset_2, SELECTED_AUG=args.dataset_2_trainaug) 
-        d2_test_transform = get_transform(dataset=args.dataset_2, SELECTED_AUG=args.dataset_2_testaug) 
+        print("=> Loading Second Dataset!")
+        d2_train_transform = get_transform(dataset=args.dataset_2, SELECTED_AUG=args.dataset_2_trainaug,use_clip_mean=use_clip_mean_m2) 
+        d2_test_transform = get_transform(dataset=args.dataset_2, SELECTED_AUG=args.dataset_2_testaug,use_clip_mean=use_clip_mean_m2) 
         d2_train_loader, d2_test_loader = get_dataloaders(dataset=args.dataset_2,
             args=args, 
             train_aug=args.dataset_2_trainaug,
@@ -316,25 +322,17 @@ def main():
     ood_loader = get_oodloader(args,dataset='stl10')
     _, n1_ood_test_acc =  test(net=net_1,test_loader=ood_loader)
     _, n2_ood_test_acc =  test(net=net_2,test_loader=ood_loader)
+    _, n1_d1_test_acc =  test(net=net_1,test_loader=d1_test_loader)
+    _, n2_d1_test_acc =  test(net=net_2,test_loader=d1_test_loader)
+    
     print("=> M1: ",args.model_1_ckpt)
     print("M1,OOD Acc.: ",n1_ood_test_acc)
+    print("M1,D1 Acc.: ",n1_d1_test_acc)
+    
     print("=> M2: ",args.model_2_ckpt)
     print("M2,OOD Acc.: ",n2_ood_test_acc)
-    _, n1_d1_test_acc =  test(net=net_1,test_loader=d1_test_loader)
-    _, n1_d1_train_acc =  test(net=net_1,test_loader=d1_train_loader)
-    if args.model_2_ckpt.lower() != "none":
-        _, n2_d1_test_acc =  test(net=net_2,test_loader=d1_test_loader)
-        _, n2_d1_train_acc =  test(net=net_2,test_loader=d1_train_loader)
-    if args.dataset_2.lower() != "none": 
-        _, n1_d2_test_acc =  test(net=net_1,test_loader=d2_test_loader)
-        _, n1_d2_train_acc =  test(net=net_1,test_loader=d2_train_loader)
-        if args.model_2_ckpt.lower() != "none": 
-            _, n2_d2_test_acc =  test(net=net_2,test_loader=d2_test_loader)
-            _, n2_d2_train_acc =  test(net=net_2,test_loader=d2_train_loader)
-    print("********** Accs *************") 
-    print("M1: ",n1_d1_train_acc,n1_d1_test_acc,n1_d2_train_acc,n1_d2_test_acc,n1_ood_test_acc)
-    print("M2: ",n2_d1_train_acc,n2_d1_test_acc,n2_d2_train_acc,n2_d2_test_acc,n2_ood_test_acc)
-    print("*****************************") 
+    print("M2,D1 Acc.: ",n2_d1_test_acc)
+    
     """
     By correctly choosing which datasets to use,
     we can extract the appropriate CKA scores for
@@ -368,7 +366,17 @@ def main():
             cka.compare(dataloader1=d1_train_loader) 
             train_results = cka.export() 
     else:
-        
+        print()
+        print("*"*30)
+        print("Comparing different loaders!") 
+        print("*"*30)
+
+        cka = CKA(net_1, net_2,
+                model1_name=m1_name,   
+                model2_name="tmp",   
+                model1_layers=layer_names, 
+                model2_layers=layer_names,
+                device='cuda:0')
         cka.compare(dataloader1=d1_test_loader,dataloader2=d2_test_loader) # secondary dataloader is optional
         test_results = cka.export() 
         if use_train: 

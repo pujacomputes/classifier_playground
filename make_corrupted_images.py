@@ -652,7 +652,10 @@ def main():
         'Gaussian Blur',
         'Spatter',
         'Saturate']
-    classes, class_idx = find_classes("/usr/workspace/wsa/trivedi1/vision_data/DomainNet/{}".format(args.env))
+    # classes, class_idx = find_classes("/usr/workspace/wsa/trivedi1/vision_data/DomainNet/{}".format(args.env))
+    with open("domainnet_sentry_class_list.txt",'r') as f:
+        classes = [line.rstrip()for line in f]
+    print("=> Num Classes: ",len(classes)) 
     for method_name in d.keys():
         for severity in range(1,6):
             for c in classes:

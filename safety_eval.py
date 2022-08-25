@@ -22,6 +22,8 @@ from PIL import Image as PILImage
 from dtd_dataset import DTD
 from cifar10p1 import CIFAR10p1
 from torchsummary import summary
+from utils import NUM_CLASSES_DICT, get_dataloaders, get_transform
+from clip_model import ClipModel
 
 def test(net, test_loader, adv=None):
     """Evaluate network on given dataset."""
@@ -330,7 +332,7 @@ def arg_parser_eval():
     parser.add_argument(
         '--corruption_path',
         type=str,
-        default='/p/lustre1/trivedi1/vision_data/CIFAR-10-C/',
+        default='/p/lustre1/trivedi1/vision_data/CIFAR-100-C/',
         required=False,
         help='Path to CIFAR and CIFAR-C directories')
     parser.add_argument(
@@ -364,6 +366,8 @@ def arg_parser_eval():
     parser.add_argument(
         '--eval_batch_size', default=128, type=int, help='Eval Batchsize')
     parser.add_argument(
+        '--batch_size', default=128, type=int, help='Train Batchsize')
+    parser.add_argument(
         '--num_workers',default=8, type=int, help='Num Workers')
     parser.add_argument(
         '--num_to_avg',default=1, type=int, help='Num to Avg.')
@@ -388,30 +392,50 @@ def main():
     random.seed(args.seed)
     train_acc, test_acc,ood_test_acc = -1,-1,-1
 
-    normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225])
-    test_transform = transforms.Compose(
-        [transforms.Resize((224,224)),transforms.ToTensor(), normalize])
-    
-    NUM_CLASSES = 10
-    clean_test_dataset = torchvision.datasets.CIFAR10(root="/p/lustre1/trivedi1/vision_data",
-    train=False,
-    transform=test_transform) 
-    
-    clean_train_dataset = torchvision.datasets.CIFAR10(root="/p/lustre1/trivedi1/vision_data",
-    train=True,
-    transform=test_transform) 
-    
-    net = timm.create_model(args.arch,pretrained=False)
-    net.reset_classifier(10)
-    if "moco" in args.ckpt:
-        #Can't use data-parallel for feature extractor 
-        net = load_moco_ckpt(model=net, pretrained_ckpt=args.ckpt).cuda()
-    else:
-        net = load_dp_ckpt(net,pretrained_ckpt=args.ckpt).cuda() #do this so there is not a conflict. 
-    net_name = args.ckpt 
+    """
+    Create model and pretrainined checkpoint
+    """
+    if args.arch.lower() == 'resnet50':
+        net = timm.create_model(args.arch,pretrained=False)
+        net.reset_classifier(NUM_CLASSES_DICT[args.dataset])
 
-    print("=> Num GPUS: ", torch.cuda.device_count()) 
-        # Fix dataloader worker issue
+        if "moco" in args.ckpt:
+            #Can't use data-parallel for feature extractor
+            net = load_moco_ckpt(model=net, pretrained_ckpt=args.ckpt).cuda()
+        else:
+            net = load_dp_ckpt(net,pretrained_ckpt=args.ckpt).cuda() #do this so there is not a conflict.
+    if 'clip' in args.arch:
+        encoder_type = args.arch.split("-")[-1]
+        print("\t => Clip Encoder: ",encoder_type)
+        print("\t => Using Default Clip Ckpt!!")
+        net = ClipModel(model_name=encoder_type,scratch=False)
+        net.reset_classifier(NUM_CLASSES_DICT[args.dataset])
+        net = load_dp_ckpt(net,pretrained_ckpt=args.ckpt).cuda()
+    use_clip_mean = "clip" in args.arch
+
+    """
+    Get Datasets
+    """
+
+    train_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+    test_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+    clean_train_loader, clean_test_loader = get_dataloaders(args=args,
+        train_aug="test",
+        test_aug="test",
+        train_transform=train_transform,
+        test_transform=test_transform,
+        use_clip_mean=use_clip_mean)
+    
+    _, clean_test_dataset = get_dataloaders(args=args,
+        train_aug="test",
+        test_aug="test",
+        train_transform=train_transform,
+        test_transform=test_transform,
+        use_clip_mean=use_clip_mean,
+        return_datasets=True)
+
+    print("=> Num GPUS: ", torch.cuda.device_count())
+    # Fix dataloader worker issue
     # https://github.com/pytorch/pytorch/issues/5059
     def wif(id):
         uint64_seed = torch.initial_seed()
@@ -419,42 +443,30 @@ def main():
         # More than 128 bits (4 32-bit words) would be overkill.
         np.random.seed(ss.generate_state(4))
 
-    clean_test_loader = torch.utils.data.DataLoader(
-        clean_test_dataset,
-        batch_size=args.eval_batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True)
-
-    summary(net, (3, 224, 224))    
-    pdb.set_trace()
-
-    safety_logs_prefix = "/p/lustre1/trivedi1/compnets/classifier_playground/safety_logs/"
-    save_name = args.save_name 
+    if "clip" in args.arch:
+        safety_logs_prefix = "/usr/workspace/trivedi1/clip_experiments_aaai/clip_safety_logs"
+    elif "cifar100" in args.dataset:
+        safety_logs_prefix = "/usr/workspace/trivedi1/cifar100_experiments_aaai/resnet50_safety_logs"
+    else:
+        safety_logs_prefix="/p/lustre1/trivedi1/compnets/classifier_playground/safety_logs" 
+    save_name = args.save_name
     print("=> Save Name: ",save_name)
+    
     """
     Clean Acc.
     """
     if args.eval_all or args.eval_Clean:
-        clean_train_loader = torch.utils.data.DataLoader(
-            clean_train_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True)
-    
         clean_err, clean_acc = test(net=net,test_loader=clean_train_loader,adv=None)
         print("=> Clean Train Acc: {0:.4f}".format(clean_acc))
         with open("{}/clean_train_acc.csv".format(safety_logs_prefix),"a") as f:
             write_str = "{save_name},{acc:.4f}\n".format(save_name = save_name,acc = clean_acc)
             f.write(write_str)
         del clean_train_loader
-        del clean_train_dataset
-        clean_test_err, clean_test_acc = test(net=net,test_loader=clean_test_loader,adv=None)
+        clean_test_loss, clean_test_acc = test(net=net,test_loader=clean_test_loader,adv=None)
         print("=> Clean Test Acc: {0:.4f}".format(clean_test_acc))
         with open("{}/clean_test_acc.csv".format(safety_logs_prefix),"a") as f:
             write_str = "{save_name},{acc:.4f}\n".format(save_name = save_name,acc = clean_test_acc)
-            f.write(write_str)
+            f.write(write_str) 
     
     """
     Eval OOD.
@@ -487,25 +499,7 @@ def main():
             """STL"""
             write_str = "{save_name},stl10,{acc:.4f}\n".format(save_name = save_name,acc = stl_acc)
             f.write(write_str)
-        # """
-        # CIFAR10.1 OOD Acc.
-        # """
-        # ood_dataset = CIFAR10p1(root="/p/lustre1/trivedi1/vision_data/CIFAR10.1/",
-        #     split='test',
-        #     version='v6',
-        #     transform=normalize) 
-        # ood_test_loader = torch.utils.data.DataLoader(
-        #     ood_dataset,
-        #     batch_size=args.eval_batch_size,
-        #     shuffle=False,
-        #     num_workers=args.num_workers,
-        #     pin_memory=True)
-        # clean_err, cifar10p1_acc = test(net=net,test_loader=ood_test_loader,adv=None)
-        # with open("{}/ood_acc.csv".format(safety_logs_prefix),"a") as f:
-        #     write_str = "{save_name},cifar10p1,{acc:.4f}\n".format(save_name = save_name,acc = cifar10p1_acc)
-        #     f.write(write_str)
-        # del ood_test_loader 
-        # del ood_dataset 
+        
     """
     Anamoly Detection.
     """
@@ -531,6 +525,8 @@ def main():
     Corruptions Accuracy
     """
     if args.eval_all or args.eval_C:
+
+
         test_c_acc = test_c(net, clean_test_dataset, args)
         print("=> Corruption Test Acc: {0:.4f}".format(test_c_acc))
         with open("{}/corruptions.csv".format(safety_logs_prefix),"a") as f:
