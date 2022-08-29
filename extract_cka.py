@@ -14,7 +14,7 @@ from utils import get_transform, NUM_CLASSES_DICT, test,norm_dict
 import pdb 
 import random
 from clip_model import ClipModel
-
+from blended_cifar_mnist import blendedCIFARMNIST, blendedSTLMNIST
 def arg_parser():
     parser = argparse.ArgumentParser(
     description='Extract CKA',
@@ -23,7 +23,7 @@ def arg_parser():
         '--dataset_1',
         type=str,
         default='cifar10',
-        choices=['cifar10','stl10','STL10','cifar100'])
+        choices=['cifar10','stl10','STL10','cifar100','blendedcifar10','blendedcifar','blendedstl'])
     
     parser.add_argument(
         '--dataset_2',
@@ -112,6 +112,23 @@ def get_oodloader(args,dataset):
         stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
         ood_dataset.labels = stl_to_cifar_indices[ood_dataset.labels]
         ood_dataset = torch.utils.data.Subset(ood_dataset,np.where(ood_dataset.labels != -1)[0])
+    elif dataset.lower() == 'blendedstl10':
+        ood_dataset = blendedSTLMNIST(train=False, transform=None)
+        ood_loader = torch.utils.data.DataLoader(
+                ood_dataset,
+                batch_size=args.eval_batch_size,
+                shuffle=False,
+                num_workers=args.num_workers,
+                pin_memory=True) 
+    elif dataset.lower() == 'blendedrandstl10':
+        random_ood_dataset = blendedSTLMNIST(train=False, transform=None,randomized=True)
+        ood_loader = torch.utils.data.DataLoader(
+                random_ood_dataset,
+                batch_size=args.eval_batch_size,
+                shuffle=False,
+                num_workers=args.num_workers,
+                pin_memory=True) 
+    
     else:
         print("ERROR ERROR ERROR")
         print("Not Implemented Yet. Exiting")
@@ -150,6 +167,7 @@ def get_dataloaders(args,dataset,train_aug, test_aug, train_transform,test_trans
 
     g = torch.Generator()
     g.manual_seed(args.seed)
+    print("DATASET: ",dataset)
     if train_aug not in ['mixup','cutmix','cutout']:
         if dataset == 'cifar10':
             train_dataset = torchvision.datasets.CIFAR10(root="/p/lustre1/trivedi1/vision_data",
@@ -168,6 +186,14 @@ def get_dataloaders(args,dataset,train_aug, test_aug, train_transform,test_trans
             stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
             train_dataset.labels = stl_to_cifar_indices[train_dataset.labels]
             train_dataset = torch.utils.data.Subset(train_dataset,np.where(train_dataset.labels != -1)[0])
+        elif dataset.lower() == 'blendedstl10':
+            train_dataset = blendedSTLMNIST(train=True, transform=None)
+        elif dataset.lower() == 'blendedrandstl10':
+            train_dataset = blendedSTLMNIST(train=True, transform=None,randomized=True)
+        elif dataset.lower() == 'blendedcifar10':
+            train_dataset = blendedCIFARMNIST(train=True, transform=None,correlation_strength=1.0)
+        elif dataset.lower() == 'blendedrandcifar10':
+            train_dataset = blendedCIFARMNIST(train=True, transform=None,randomized=True)
         else:
             print("***** ERROR ERROR ERROR ******")
             print("=> Invalid Dataset Selected, Exiting")
@@ -194,6 +220,14 @@ def get_dataloaders(args,dataset,train_aug, test_aug, train_transform,test_trans
             stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
             train_dataset.labels = stl_to_cifar_indices[train_dataset.labels]
             train_dataset = torch.utils.data.Subset(train_dataset,np.where(train_dataset.labels != -1)[0])
+        elif dataset.lower() == 'blendedstl10':
+            train_dataset = blendedSTLMNIST(train=True, transform=None)
+        elif dataset.lower() == 'blendedrandstl10':
+            train_dataset = blendedSTLMNIST(train=True, transform=None,randomized=True)
+        elif dataset.lower() == 'blendedcifar10':
+            train_dataset = blendedCIFARMNIST(train=True, transform=None,correlation_strength=1.0)
+        elif dataset.lower() == 'blendedrandcifar10':
+            train_dataset = blendedCIFARMNIST(train=True, transform=None,randomized=True)
 
     """
     Create Test Dataloaders.
@@ -217,6 +251,17 @@ def get_dataloaders(args,dataset,train_aug, test_aug, train_transform,test_trans
             stl_to_cifar_indices = np.array([0, 2, 1, 3, 4, 5, 7, -1, 8, 9])
             test_dataset.labels = stl_to_cifar_indices[test_dataset.labels]
             test_dataset = torch.utils.data.Subset(test_dataset,np.where(test_dataset.labels != -1)[0])
+    
+    elif dataset.lower() == 'blendedstl10':
+        test_dataset = blendedSTLMNIST(train=False, transform=None)
+    elif dataset.lower() == 'blendedrandstl10':
+        test_dataset = blendedSTLMNIST(train=False, transform=None,randomized=True)
+    elif dataset.lower() == 'blendedcifar10':
+        test_dataset = blendedCIFARMNIST(train=False, transform=None,correlation_strength=1.0)
+    elif dataset.lower() == 'blendedrandcifar10':
+        test_dataset = blendedCIFARMNIST(train=False, transform=None,randomized=True)
+
+    
     else:
         print("***** ERROR ERROR ERROR ******")
         print("xxx Invalid Dataset Selected, Exiting")
@@ -269,20 +314,25 @@ def main():
     """
     Create (optional) Model 2
     """
-    if args.model_2_ckpt.lower() != "none":
+    if args.model_2_ckpt.lower() == "scratch":
         net_2 = timm.create_model(args.arch,pretrained=False)
         net_2.reset_classifier(NUM_CLASSES_DICT[args.dataset_1]) ##TODO: assumed to have same # of classes!
-        if "moco" in args.model_2_ckpt:
-            net_2 = load_moco_ckpt(model=net_2, pretrained_ckpt=args.model_2_ckpt)
-            net_2 = torch.nn.DataParallel(net_2,device_ids=[0]).cuda()
-        else:
-            net_2 = torch.nn.DataParallel(net_2,device_ids=[0]).cuda()
-            ckpt = torch.load(args.model_2_ckpt)
-            net_2.load_state_dict(ckpt['state_dict'])
-        m2_name = args.model_2_ckpt 
-    else:
+        net_2 = load_moco_ckpt(model=net_2, pretrained_ckpt="/p/lustre1/trivedi1/vision_data/moco_v2_800ep_pretrain.pth.tar")
+        net_2 = torch.nn.DataParallel(net_2,device_ids=[0]).cuda()
+        print("M2 Uses PRETRAINED MOCOV2.")
+        m2_name = "scratch" 
+    elif "none" in args.model_2_ckpt.lower() :
+        print("NO MODEL 2 Specified, just using model 1") 
         net_2 = net_1 #if model 2 is not specified, use model 1 twice.
         m2_name = args.model_1_ckpt 
+    else:
+        net_2 = timm.create_model(args.arch,pretrained=False)
+        net_2.reset_classifier(NUM_CLASSES_DICT[args.dataset_1]) ##TODO: assumed to have same # of classes!
+        net_2 = torch.nn.DataParallel(net_2,device_ids=[0]).cuda()
+        ckpt = torch.load(args.model_2_ckpt)
+        net_2.load_state_dict(ckpt['state_dict'])
+        m2_name = args.model_2_ckpt 
+   
 
     use_clip_mean_m2 = "clip" in args.model_2_ckpt
     use_clip_mean_m1 = "clip" in args.model_1_ckpt
@@ -319,7 +369,11 @@ def main():
     """
     Get accuracies.
     """
-    ood_loader = get_oodloader(args,dataset='stl10')
+    if "blended" in args.dataset_1:
+        print("=> Using Blended OOD")
+        ood_loader = get_oodloader(args,dataset='blendedstl10')
+    else:
+        ood_loader = get_oodloader(args,dataset='stl10')
     _, n1_ood_test_acc =  test(net=net_1,test_loader=ood_loader)
     _, n2_ood_test_acc =  test(net=net_2,test_loader=ood_loader)
     _, n1_d1_test_acc =  test(net=net_1,test_loader=d1_test_loader)

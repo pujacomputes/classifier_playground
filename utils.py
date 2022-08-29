@@ -23,7 +23,9 @@ NUM_CLASSES_DICT = {
     'domainnet-real':40,
     'domainnet-painting':40,
     'pairedCIFAR':10,
-    'blendedCIFAR':10
+    'blendedCIFAR':10,
+    'blendedcifar10':10,
+    'blendedstl10':10
 
 }
 
@@ -155,12 +157,12 @@ def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
     if dataset == 'cifar100':
         num_classes = 100
         crop_size=32
-    elif dataset == 'cifar10':
+    elif 'cifar10' in dataset.lower():
         num_classes = 10
         crop_size=32
     elif dataset == 'imagenet1K':
         num_classes = 1000
-    elif dataset.lower() == 'stl10':
+    elif "stl10" in dataset.lower():
         num_classes = 10
     elif "domainnet" in dataset:
         num_classes = 40
