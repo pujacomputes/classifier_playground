@@ -17,6 +17,7 @@ wandb/
 *out
 *.ckpt
 *sh
+!clip_scripts/*sh
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

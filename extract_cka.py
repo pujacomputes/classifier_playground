@@ -96,6 +96,11 @@ def arg_parser():
         default=1
     ) 
     
+    parser.add_argument(
+        '--save_name',
+        type=str,
+    ) 
+    
     args = parser.parse_args()
     return args  
 
@@ -374,8 +379,11 @@ def main():
         ood_loader = get_oodloader(args,dataset='blendedstl10')
     else:
         ood_loader = get_oodloader(args,dataset='stl10')
-    _, n1_ood_test_acc =  test(net=net_1,test_loader=ood_loader)
-    _, n2_ood_test_acc =  test(net=net_2,test_loader=ood_loader)
+
+    n1_ood_test_acc, n2_ood_test_acc = -1, -1
+    if args.dataset_1 != 'cifar100':
+        _, n1_ood_test_acc =  test(net=net_1,test_loader=ood_loader)
+        _, n2_ood_test_acc =  test(net=net_2,test_loader=ood_loader)
     _, n1_d1_test_acc =  test(net=net_1,test_loader=d1_test_loader)
     _, n2_d1_test_acc =  test(net=net_2,test_loader=d1_test_loader)
     
@@ -444,6 +452,24 @@ def main():
         print("********** Train ************") 
         print(train_results)
         print("*****************************") 
-
+   
+    """"
+    Save the diagonal values to log file.
+    """
+    if args.dataset_1 == 'cifar100':
+        safety_logs_prefix = "/usr/workspace/trivedi1/cifar100_experiments_aaai/resnet50_safety_logs"
+    elif args.dataset_1 == 'cifar10': 
+        safety_logs_prefix = "/p/lustre1/trivedi1/compnets/classifier_playground/safety_logs"
+    print("=> Save Name:",args.save_name)
+    test_results_diag = np.diag(test_results['CKA'].numpy())
+    test_results_diag = np.round(test_results_diag,4)
+    print("=> Avg CKA: {0:.4f}".format(np.mean(test_results_diag))) 
+    avg_cka = np.round(np.mean(test_results_diag),4)
+    test_results_diag = test_results_diag.tolist()
+    test_results_diag = [np.round(i,4) for i in test_results_diag]
+    print("=> CKAs: ",test_results_diag)
+    with open("{}/cka.csv".format(safety_logs_prefix),"a") as f:
+        write_str = "{save_name},{avg_cka:.4f},{cka}\n".format(save_name=args.save_name,avg_cka=avg_cka, cka=test_results_diag)
+        f.write(write_str)
 if __name__ == '__main__':
     main()
