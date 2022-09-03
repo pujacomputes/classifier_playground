@@ -71,7 +71,7 @@ def test_c(net, test_data, args):
 def test_cal(net, test_data, args):
     concat = lambda x: np.concatenate(x, axis=0)
     to_np = lambda x: x.data.to('cpu').numpy()
-
+    net.eval()
     corruption_accs = []
     calib_scores = []
     corrs = CBAR_CORRUPTIONS if 'Bar' in args.corruption_path else CORRUPTIONS
@@ -268,6 +268,7 @@ def test_p(net,args):
         exit() 
 
     flip_list = []
+    net.eval()
     for p in ['gaussian_noise', 'shot_noise', 'motion_blur', 'zoom_blur',
             'spatter', 'brightness', 'translate', 'rotate', 'tilt', 'scale']:
         

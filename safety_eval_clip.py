@@ -77,6 +77,7 @@ def test_cal_domainnet(net, test_data, args):
     print("=> Use Clip Mean?: ",use_clip_mean)
     corruption_accs = []
     calib_scores = []
+    net.eval()
     corrs = CBAR_CORRUPTIONS if 'Bar' in args.corruption_path else CORRUPTIONS
     for corruption in corrs:
         for sev in range(1,6): 
@@ -321,7 +322,7 @@ def test_p(net,args):
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
         exit()
-
+    net.eval()
     img_size=224
     flip_list = []
     for p in ['gaussian_noise', 'shot_noise', 'motion_blur', 'zoom_blur',
