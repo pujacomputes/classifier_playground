@@ -9,12 +9,14 @@ import torchvision.transforms as transforms
 import torch.nn.functional as F
 from cifar10p1 import CIFAR10p1
 import domainnet
+import living17
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 NUM_CLASSES_DICT = {
     'cifar10':10,
     'cifar100':100,
+    'living17':17,
     'stl10':10,
     'none':-1,
     'STL10':10,
@@ -32,6 +34,8 @@ NUM_CLASSES_DICT = {
 norm_dict = {
     'cifar10_mean':[0.485, 0.456, 0.406],
     'cifar10_std': [0.228, 0.224, 0.225],
+    'living17_mean':[0.485, 0.456, 0.406],
+    'living17_std': [0.228, 0.224, 0.225],
     'pairedcifar10_mean':[0.485, 0.456, 0.406],
     'pairedcifar10_std': [0.228, 0.224, 0.225],
     'blendedcifar10_mean':[0.485, 0.456, 0.406],
@@ -86,7 +90,7 @@ def get_oodloader(args,dataset,use_clip_mean=False):
     elif dataset.upper() == "CIFAR10.1":
         ood_dataset = CIFAR10p1(root="/p/lustre1/trivedi1/vision_data/CIFAR10.1/",
             split='test',
-            verision='v6',
+            version='v6',
             transform=transform)
     elif "domainnet" in dataset.lower():
         domain_name = dataset.split("-")[-1]
@@ -101,6 +105,9 @@ def get_oodloader(args,dataset,use_clip_mean=False):
         so we are just going to return None.
         """
         return None 
+    elif dataset == "living17":
+        ood_dataset = living17.Living17( split='test',
+            transform=transform) 
     else:
         print("ERROR ERROR ERROR")
         print("Not Implemented Yet. Exiting")
@@ -166,6 +173,9 @@ def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
         num_classes = 10
     elif "domainnet" in dataset:
         num_classes = 40
+        crop_size=224
+    elif "living17" in dataset:
+        num_classes = 17 
         crop_size=224
     else:
         print("***** ERROR ERROR ERROR ******")
@@ -276,6 +286,9 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
                 split='train',
                 root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
                 transform=train_transform) 
+        elif "living17" in args.dataset.lower():
+            train_dataset = living17.Living17( split='train',
+                transform=train_transform) 
         else:
             print("***** ERROR ERROR ERROR ******")
             print("Invalid Dataset Selected, Exiting")
@@ -304,6 +317,9 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
                 split='train',
                 root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
                 transform=normalize) 
+        elif "living17" in args.dataset.lower():
+            train_dataset = living17.Living17( split='train',
+                transform=train_transform) 
         
     """
     Create Test Dataloaders.
@@ -325,6 +341,9 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
             root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
             transform=test_transform) 
         NUM_CLASSES=40
+    elif "living17" in args.dataset.lower():
+        test_dataset = living17.Living17( split='test',
+            transform=test_transform) 
     else:
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
@@ -443,13 +462,13 @@ def arg_parser():
         '--dataset',
         type=str,
         default='cifar10',
-        choices=['cifar10','domainnet-sketch','cifar100','pairedCIFAR','blendedCIFAR'])
+        choices=['cifar10','domainnet-sketch','cifar100','pairedCIFAR','blendedCIFAR','living17'])
     
     parser.add_argument(
         '--eval_dataset',
         type=str,
         default='stl10',
-        choices=['stl10','cifar10.1','domainnet-painting','domainnet-real','domainnet-clipart','domainnet-all','cifar100','pairedSTL','blendedSTL'])
+        choices=['stl10','cifar10.1','domainnet-painting','domainnet-real','domainnet-clipart','domainnet-all','cifar100','pairedSTL','blendedSTL','living17'])
     
     parser.add_argument(
         '--arch',
