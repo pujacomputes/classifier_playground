@@ -159,7 +159,34 @@ class BreedsPT(Dataset):
         return len(self._idx_to_class_id)
 
 if __name__ == '__main__':
-    superclasses, subclass_split, label_map = make_entity30('/usr/workspace/trivedi1/vision_data/breeds_info', split="rand")
-    pdb.set_trace()
-    # Breeds(root='/usr/workspace/trivedi1/vision_data/breeds', breeds_name='entity30', info_dir='/usr/workspace/trivedi1/vision_data/breeds_info',
+    # bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+    #     breeds_name='entity30', 
+    #     info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
     #     source=True, target=False, split='train', transform=None)
+    # print("Entity30, train: ",len(bdatset))
+    # bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+    #     breeds_name='entity30', 
+    #     info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+    #     source=True, target=False, split='val', transform=None)
+    # print("Entity30, test: ",len(bdatset))
+    # bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+    #     breeds_name='entity30', 
+    #     info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+    #     source=False, target=True, split='val', transform=None)
+    # print("Entity30, target, test: ",len(bdatset))
+    
+    bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+        breeds_name='living17', 
+        info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+        source=True, target=False, split='train', transform=None)
+    print("Living17, train: ",len(bdatset))
+    bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+        breeds_name='living17', 
+        info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+        source=True, target=False, split='val', transform=None)
+    print("Living17, test: ",len(bdatset))
+    bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+        breeds_name='living17', 
+        info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+        source=False, target=True, split='val', transform=None)
+    print("Living17, target, test: ",len(bdatset))

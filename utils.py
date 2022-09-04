@@ -9,7 +9,7 @@ import torchvision.transforms as transforms
 import torch.nn.functional as F
 from cifar10p1 import CIFAR10p1
 import domainnet
-import living17
+from breeds import Breeds
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -17,6 +17,7 @@ NUM_CLASSES_DICT = {
     'cifar10':10,
     'cifar100':100,
     'living17':17,
+    'entity30':30,
     'stl10':10,
     'none':-1,
     'STL10':10,
@@ -36,6 +37,8 @@ norm_dict = {
     'cifar10_std': [0.228, 0.224, 0.225],
     'living17_mean':[0.485, 0.456, 0.406],
     'living17_std': [0.228, 0.224, 0.225],
+    'entity30_mean':[0.485, 0.456, 0.406],
+    'entity30_std': [0.228, 0.224, 0.225],
     'pairedcifar10_mean':[0.485, 0.456, 0.406],
     'pairedcifar10_std': [0.228, 0.224, 0.225],
     'blendedcifar10_mean':[0.485, 0.456, 0.406],
@@ -106,8 +109,21 @@ def get_oodloader(args,dataset,use_clip_mean=False):
         """
         return None 
     elif dataset == "living17":
-        ood_dataset = living17.Living17( split='test',
-            transform=transform) 
+        ood_dataset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+            breeds_name='living17', 
+            info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+            source=False, 
+            target=True, 
+            split='val', 
+            transform=transform)
+    elif dataset == "entity30":
+        ood_dataset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+            breeds_name='entity30', 
+            info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+            source=False, 
+            target=True, 
+            split='val', 
+            transform=transform)
     else:
         print("ERROR ERROR ERROR")
         print("Not Implemented Yet. Exiting")
@@ -176,6 +192,9 @@ def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
         crop_size=224
     elif "living17" in dataset:
         num_classes = 17 
+        crop_size=224
+    elif "entity30" in dataset:
+        num_classes = 30
         crop_size=224
     else:
         print("***** ERROR ERROR ERROR ******")
@@ -259,7 +278,7 @@ def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
             transforms.ToTensor(),
             normalize])
     
-    elif SELECTED_AUG == 'test' or "vat" in SELECTED_AUG:
+    elif SELECTED_AUG in ['test','fgsm'] or "vat" in SELECTED_AUG:
         transform = transforms.Compose(
             [transforms.Resize((224,224)), transforms.ToTensor(),normalize])
     elif SELECTED_AUG == 'pixmix':
@@ -287,7 +306,20 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
                 root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
                 transform=train_transform) 
         elif "living17" in args.dataset.lower():
-            train_dataset = living17.Living17( split='train',
+            train_dataset= Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+                breeds_name='living17', 
+                info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+                source=True, 
+                target=False, 
+                split='train', 
+                transform=train_transform) 
+        elif "entity30" in args.dataset.lower():
+            train_dataset= Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+                breeds_name='entity30', 
+                info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+                source=True, 
+                target=False, 
+                split='train', 
                 transform=train_transform) 
         else:
             print("***** ERROR ERROR ERROR ******")
@@ -318,9 +350,25 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
                 root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
                 transform=normalize) 
         elif "living17" in args.dataset.lower():
-            train_dataset = living17.Living17( split='train',
-                transform=train_transform) 
-        
+            train_dataset= Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+                breeds_name='living17', 
+                info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+                source=True, 
+                target=False, 
+                split='train', 
+                transform=normalize) 
+        elif "entity30" in args.dataset.lower():
+            train_dataset= Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+                breeds_name='entity30', 
+                info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+                source=True, 
+                target=False, 
+                split='train', 
+                transform=normalize) 
+        else:
+            print("***** ERROR ERROR ERROR ******")
+            print("Invalid Dataset Selected, Exiting")
+            exit() 
     """
     Create Test Dataloaders.
     """
@@ -342,8 +390,21 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
             transform=test_transform) 
         NUM_CLASSES=40
     elif "living17" in args.dataset.lower():
-        test_dataset = living17.Living17( split='test',
+        test_transform = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+            breeds_name='living17', 
+            info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+            source=True, 
+            target=False, 
+            split='val', 
             transform=test_transform) 
+    elif "entity30" in args.dataset.lower():
+        test_dataset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+            breeds_name='entity30', 
+            info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+            source=True, 
+            target=False, 
+            split='val', 
+            transform=test_transform)  
     else:
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
@@ -462,13 +523,13 @@ def arg_parser():
         '--dataset',
         type=str,
         default='cifar10',
-        choices=['cifar10','domainnet-sketch','cifar100','pairedCIFAR','blendedCIFAR','living17'])
+        choices=['cifar10','domainnet-sketch','cifar100','pairedCIFAR','blendedCIFAR','living17','entity30'])
     
     parser.add_argument(
         '--eval_dataset',
         type=str,
         default='stl10',
-        choices=['stl10','cifar10.1','domainnet-painting','domainnet-real','domainnet-clipart','domainnet-all','cifar100','pairedSTL','blendedSTL','living17'])
+        choices=['stl10','cifar10.1','domainnet-painting','domainnet-real','domainnet-clipart','domainnet-all','cifar100','pairedSTL','blendedSTL','living17','entity30'])
     
     parser.add_argument(
         '--arch',
@@ -480,7 +541,7 @@ def arg_parser():
         '--protocol',
         type=str,
         default='lp',
-        choices=['lp', 'ft', 'lp+ft','lpfrz+ft','sklp','sklp+ft','vatlp','vatlp+ft','voslp','voslp+ft'])
+        choices=['lp', 'ft', 'lp+ft','lpfrz+ft','sklp','sklp+ft','vatlp','vatlp+ft','voslp','voslp+ft','fgsmlp','fgsmlp+ft'])
     parser.add_argument(
         '--pretrained_ckpt',
         type=str,
@@ -639,6 +700,12 @@ def arg_parser():
     Simplicity Bias
     """
     parser.add_argument('--correlation_strength', type=float, default=0.89,help="How strong the correlation is for blended cifar-mnist")
+    
+    """
+    Adversarial LP 
+    """
+    parser.add_argument('--eps', type=float, default=0.001,help="Episilon for LP Training (Hidden Space Adv. Training!)")
+    parser.add_argument('--num_steps', type=int, default=20,help="How many steps for PGD Attack")
     args = parser.parse_args()
     return args 
 
