@@ -14,6 +14,11 @@ import pdb
 from clip_model import ClipModel
 from torch.utils.data.distributed import DistributedSampler
 from vat_loss import VATLoss
+from cleverhans.torch.attacks.fast_gradient_method import fast_gradient_method
+from cleverhans.torch.attacks.projected_gradient_descent import (
+    projected_gradient_descent,
+)
+
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 """
@@ -244,7 +249,74 @@ def linear_probe_vat(args, net, train_loader,test_loader, train_aug, train_trans
     }
     return net, checkpoint
 
+def linear_probe_fgsm(args, net, train_loader,test_loader, train_aug, train_transform):
+    net.eval()
+    train_features, train_labels = extract_features(args,model=net, loader=train_loader,train_aug=train_aug,train_transform=train_transform)
+    test_features, test_labels = extract_features(args,model=net, loader=test_loader,train_aug='test',train_transform=None)
+    print(train_features.shape)
 
+    rep_train_dataset = torch.utils.data.TensorDataset(torch.Tensor(train_features),torch.Tensor(train_labels).long())
+    rep_train_dataloader = torch.utils.data.DataLoader(rep_train_dataset,batch_size=args.batch_size,shuffle=True) 
+    
+    rep_test_dataset = torch.utils.data.TensorDataset(torch.Tensor(test_features),torch.Tensor(test_labels).long())
+    rep_test_dataloader = torch.utils.data.DataLoader(rep_test_dataset,batch_size=args.batch_size,shuffle=True) 
+    
+    """
+    Create a linear probe layer.
+    We will attach it separately back.
+    """
+    
+    fc = torch.nn.Linear(train_features.shape[1],NUM_CLASSES_DICT[args.dataset]).to(DEVICE)
+    optimizer = torch.optim.SGD(
+        fc.parameters(),
+        args.learning_rate,
+        momentum=args.momentum,
+        weight_decay=args.decay,
+        nesterov=True)
+
+    scheduler = LR_Scheduler(
+        optimizer,
+        warmup_epochs=0, warmup_lr = 0*args.batch_size/256, 
+        num_epochs=args.epochs, base_lr=args.learning_rate*args.batch_size/256, 
+        final_lr =1e-5 *args.batch_size/256, 
+        iter_per_epoch= len(train_loader),
+        constant_predictor_lr=False
+    )
+    criterion = torch.nn.CrossEntropyLoss()
+    for epochs in range(args.epochs):
+        loss_avg = 0
+        for batch_idx, (data, target) in enumerate(rep_train_dataloader):
+            data, target = data.to(DEVICE), target.to(DEVICE)
+            optimizer.zero_grad()
+
+            adv_data = fast_gradient_method(fc, data, args.eps, np.inf)
+            output = fc(adv_data)
+            loss = criterion(output, target) 
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            loss_avg += loss 
+        _,train_acc = test(fc, rep_train_dataloader) 
+        _,test_acc = test(fc, rep_test_dataloader) 
+        
+        print("Epoch: {0} -- Loss: {1:.4f} -- Train Acc: {2:.4f} -- Test Acc: {3:.4f}".format(epochs,loss_avg,train_acc,test_acc))
+    #Set the classifier weights
+    net.module.fc = fc 
+   
+    """
+    Compute acc. using forward passes.
+    """
+    _,acc = test(net=net,test_loader=test_loader)
+    print("Completed FGSM Training: {0:.3f}".format(acc))
+    checkpoint = {
+        'lp_epoch': args.epochs,
+        'dataset': args.dataset,
+        'model': args.arch,
+        'state_dict': net.state_dict(),
+        'best_acc': acc,
+        'protocol':'vatlp'
+    }
+    return net, checkpoint
 
 def main():
     args = arg_parser()
@@ -282,6 +354,9 @@ def main():
     use_clip_mean = "clip" in args.arch 
     if "vat" in args.protocol:
         lp_aug_name = "vat-{}".format(args.alpha)
+    elif "fgsm" in args.protocol:
+        lp_aug_name = "fgsm-{}".format(args.eps)
+
     else:
         lp_aug_name = args.train_aug
     save_name =  args.dataset \
@@ -318,7 +393,7 @@ def main():
     """
     lp_train_acc, lp_test_acc, lp_train_loss, lp_test_loss = -1,-1,-1,-1
     ft_train_acc, ft_test_acc, ft_train_loss, ft_test_loss = -1,-1,-1,-1
-    if args.protocol in ['lp','lp+ft','vatlp+ft','vatlp']:
+    if args.protocol in ['lp','lp+ft','vatlp+ft','vatlp','fgsmlp','fgsmlp+ft']:
 
         log_path = os.path.join("{}/logs".format(PREFIX),
                             "lp+" + save_name + '_training_log.csv')
@@ -346,7 +421,7 @@ def main():
         Passing only the fc layer to the optimizer. 
         This prevents lower layers from being effected by weight decay.
         """
-        if args.resume_lp_ckpt.lower() != "none" and args.protocol in ['lp+ft','vatlp+ft']:
+        if args.resume_lp_ckpt.lower() != "none" and args.protocol in ['lp+ft','vatlp+ft','fgsm+ft']:
             print("****************************")
             print("Loading Saved LP Ckpt")
             ckpt = torch.load(args.resume_lp_ckpt)
@@ -385,9 +460,28 @@ def main():
 
                 lp_train_loss, lp_train_acc = test(net, train_loader)
                 lp_test_loss, lp_test_acc = test(net, test_loader)
+            elif "fgsm" in args.protocol and args.resume_lp_ckpt.lower() == "none" :
+                print("=%"*20)
+                print("FGSM LP TRAINING")
+                print("=%"*20)
+                net = freeze_layers_for_lp(net)
 
+                """
+                Perform Linear Probe Training 
+                """
+                net, ckpt = linear_probe_fgsm(args, net, train_loader, test_loader, args.train_aug, train_transform)
 
-            elif "vat" not in args.protocol and args.resume_lp_ckpt.lower() == "none" :
+                """
+                Save LP Final Ckpt.
+                """
+                s = "fgsmlp+{save_name}_final_checkpoint_{epoch:03d}_pth.tar".format(save_name=save_name,epoch=args.epochs)
+                save_path = os.path.join(args.save, s)
+                torch.save(ckpt, save_path)
+
+                lp_train_loss, lp_train_acc = test(net, train_loader)
+                lp_test_loss, lp_test_acc = test(net, test_loader)
+
+            elif "vat" not in args.protocol and "fgsm" not in args.protocol and args.resume_lp_ckpt.lower() == "none" :
                 print("=*"*60)
                 print("STANDARD LP TRAINING")
                 print("=*"*60)
@@ -444,11 +538,13 @@ def main():
 
                 lp_train_loss, lp_train_acc = test(net, train_loader)
                 lp_test_loss, lp_test_acc = test(net, test_loader)
-
+            else:
+                print("ERROR ERROR ERROR INVALID LP PROTOCOL")
+                print("EXITING")
     """
     Performing Fine-tuing Training!
     """
-    if args.protocol in ['lp+ft','ft','lpfrz+ft','vatlp+ft']:
+    if args.protocol in ['lp+ft','ft','lpfrz+ft','vatlp+ft','fgsmlp+ft']:
         if args.protocol == 'lpfrz+ft':
             print("=> Freezing Classifier, Unfreezing All Other Layers!")
             net = unfreeze_layers_for_lpfrz_ft(net)
@@ -460,7 +556,7 @@ def main():
         """
         Select FT Augmentation Scheme.
         """
-        if args.protocol in ['lp+ft','vatlp+ft'] and args.resume_lp_ckpt.lower() == 'none':
+        if args.protocol in ['lp+ft','vatlp+ft','fgsmlp+ft'] and args.resume_lp_ckpt.lower() == 'none':
             del train_loader, test_loader, optimizer, scheduler, train_transform, test_transform
         ft_train_transform = get_transform(dataset=args.dataset, 
             SELECTED_AUG=args.ft_train_aug,

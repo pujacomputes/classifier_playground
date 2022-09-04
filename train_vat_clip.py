@@ -16,6 +16,12 @@ import numpy as np
 import torch.nn.functional as F
 from utils import *
 import pdb 
+from cleverhans.torch.attacks.fast_gradient_method import fast_gradient_method
+from cleverhans.torch.attacks.projected_gradient_descent import (
+    projected_gradient_descent,
+)
+
+
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 PREFIX="/p/lustre1/trivedi1/compnets/classifier_playground/"
@@ -130,6 +136,76 @@ def linear_probe_vat(args, net, train_loader,test_loader, train_aug, train_trans
         'protocol':'vatlp'
     }
     return net, checkpoint
+
+def linear_probe_fgsm(args, net, train_loader,test_loader, train_aug, train_transform):
+    net.eval()
+    train_features, train_labels = extract_features(args,model=net, loader=train_loader,train_aug=train_aug,train_transform=train_transform)
+    test_features, test_labels = extract_features(args,model=net, loader=test_loader,train_aug='test',train_transform=None)
+    print(train_features.shape)
+
+    rep_train_dataset = torch.utils.data.TensorDataset(torch.Tensor(train_features),torch.Tensor(train_labels).long())
+    rep_train_dataloader = torch.utils.data.DataLoader(rep_train_dataset,batch_size=args.batch_size,shuffle=True) 
+    
+    rep_test_dataset = torch.utils.data.TensorDataset(torch.Tensor(test_features),torch.Tensor(test_labels).long())
+    rep_test_dataloader = torch.utils.data.DataLoader(rep_test_dataset,batch_size=args.batch_size,shuffle=True) 
+    
+    """
+    Create a linear probe layer.
+    We will attach it separately back.
+    """
+    
+    fc = torch.nn.Linear(train_features.shape[1],NUM_CLASSES_DICT[args.dataset]).to(DEVICE)
+    optimizer = torch.optim.SGD(
+        fc.parameters(),
+        args.learning_rate,
+        momentum=args.momentum,
+        weight_decay=args.decay,
+        nesterov=True)
+
+    scheduler = LR_Scheduler(
+        optimizer,
+        warmup_epochs=0, warmup_lr = 0*args.batch_size/256, 
+        num_epochs=args.epochs, base_lr=args.learning_rate*args.batch_size/256, 
+        final_lr =1e-5 *args.batch_size/256, 
+        iter_per_epoch= len(train_loader),
+        constant_predictor_lr=False
+    )
+    criterion = torch.nn.CrossEntropyLoss()
+    for epochs in range(args.epochs):
+        loss_avg = 0
+        for batch_idx, (data, target) in enumerate(rep_train_dataloader):
+            data, target = data.to(DEVICE), target.to(DEVICE)
+            optimizer.zero_grad()
+
+            adv_data = fast_gradient_method(fc, data, args.eps, np.inf)
+            output = fc(adv_data)
+            loss = criterion(output, target) 
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            loss_avg += loss 
+        _,train_acc = test(fc, rep_train_dataloader) 
+        _,test_acc = test(fc, rep_test_dataloader) 
+        
+        print("Epoch: {0} -- Loss: {1:.4f} -- Train Acc: {2:.4f} -- Test Acc: {3:.4f}".format(epochs,loss_avg,train_acc,test_acc))
+    #Set the classifier weights
+    net.module.fc = fc 
+   
+    """
+    Compute acc. using forward passes.
+    """
+    _,acc = test(net=net,test_loader=test_loader)
+    print("Completed FGSM Training: {0:.3f}".format(acc))
+    checkpoint = {
+        'lp_epoch': args.epochs,
+        'dataset': args.dataset,
+        'model': args.arch,
+        'state_dict': net.state_dict(),
+        'best_acc': acc,
+        'protocol':'vatlp'
+    }
+    return net, checkpoint
+
 
 def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_epoch,end_epoch,train_loader, test_loader, train_aug, train_transform):
 
