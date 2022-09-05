@@ -49,7 +49,7 @@ class CIFAR10p1(Dataset):
         imagedata, labels = load_new_test_data(root=root, version_string=version)
         self._transform = transform
         self._imagedata = imagedata
-        self._labels = labels
+        self._labels = torch.LongTensor(labels)
         
     def __getitem__(self, i):
         x = Image.fromarray(np.uint8(self._imagedata[i]))

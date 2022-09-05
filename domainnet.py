@@ -65,7 +65,7 @@ def load_dataset(domains, split, version):
 
 class DomainNet(Dataset):
     def __init__(self, domain, split='train', root=ROOT,
-                 transform=None, unlabeled=False, verbose=True,
+                 transform=None, unlabeled=False, verbose=False,
                  version='sentry'):
         super().__init__()
 

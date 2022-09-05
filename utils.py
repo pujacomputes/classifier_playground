@@ -885,3 +885,112 @@ CBAR_CORRUPTIONS = [
     "blue_noise_sample", "brownish_noise", "checkerboard_cutout", 
     "inverse_sparkles", "pinch_and_twirl", "ripple", "circular_motion_blur", 
     "lines", "sparkles", "transverse_chromatic_abberation"]
+
+
+def get_calibration_loader(args,cal_dataset,corruption=None, severity=None,clean_test_dataset=None):
+    """
+    Get different CIFAR10 Calibration datasets
+    """
+    use_clip_mean = "clip" in args.arch
+    if args.dataset == 'cifar10':
+        if cal_dataset == "id-c":
+            """
+            Load cifar10-c 
+            """
+            corruption_path = "/usr/workspace/trivedi1/vision_data/CIFAR-10-C/"
+            clean_test_dataset.data = np.load(corruption_path + corruption + '.npy')
+            clean_test_dataset.targets = torch.LongTensor(np.load(corruption_path+ 'labels.npy'))
+            clean_test_loader = torch.utils.data.DataLoader(
+                clean_test_dataset,
+                batch_size=args.eval_batch_size,
+                shuffle=False,
+                num_workers=args.num_workers,
+                pin_memory=True)
+        elif cal_dataset == "id-c-bar":
+            """
+            Load cifar10-c-bar 
+            """
+            corruption_path = "/usr/workspace/trivedi1/vision_data/CIFAR-10-C-BAR/"
+            clean_test_dataset.data = np.load(corruption_path + corruption + '.npy')
+            clean_test_dataset.targets = torch.LongTensor(np.load(corruption_path+ 'labels.npy'))
+            clean_test_loader = torch.utils.data.DataLoader(
+                clean_test_dataset,
+                batch_size=args.eval_batch_size,
+                shuffle=False,
+                num_workers=args.num_workers,
+                pin_memory=True)
+        elif cal_dataset == "id-clean":
+            train_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+            test_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+            _, clean_test_loader = get_dataloaders(args=args,
+                train_aug="test",
+                test_aug="test",
+                train_transform=train_transform,
+                test_transform=test_transform,
+                use_clip_mean=use_clip_mean)
+        elif cal_dataset == "stl":
+            clean_test_loader = get_oodloader(args,dataset="stl10",use_clip_mean=use_clip_mean)
+        elif cal_dataset == "cifar10p1":
+            clean_test_loader = get_oodloader(args,dataset="cifar10.1",use_clip_mean=use_clip_mean)
+    elif args.dataset == 'cifar100':
+        """
+        Get CIFAR100 Calibration Datasets
+        """
+        if cal_dataset == "id-c":
+            """
+            Load cifar100-c 
+            """
+            corruption_path = "/usr/workspace/trivedi1/vision_data/CIFAR-100-C"
+            clean_test_dataset.data = np.load(corruption_path + corruption + '.npy')
+            clean_test_dataset.targets = torch.LongTensor(np.load(corruption_path+ 'labels.npy'))
+            clean_test_loader = torch.utils.data.DataLoader(
+                clean_test_dataset,
+                batch_size=args.eval_batch_size,
+                shuffle=False,
+                num_workers=args.num_workers,
+                pin_memory=True)
+            corrs = CORRUPTIONS
+        elif cal_dataset == "id-c-bar":
+            """
+            Load cifar100-c-bar 
+            """
+            corruption_path = "/usr/workspace/trivedi1/vision_data/CIFAR-100-C-BAR"
+            clean_test_dataset.data = np.load(corruption_path + corruption + '.npy')
+            clean_test_dataset.targets = torch.LongTensor(np.load(corruption_path+ 'labels.npy'))
+            clean_test_loader = torch.utils.data.DataLoader(
+                clean_test_dataset,
+                batch_size=args.eval_batch_size,
+                shuffle=False,
+                num_workers=args.num_workers,
+                pin_memory=True)
+            corrs = CBAR_CORRUPTIONS
+        elif cal_dataset == "id-clean":
+            train_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+            test_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+            _, clean_test_loader = get_dataloaders(args=args,
+                train_aug="test",
+                test_aug="test",
+                train_transform=train_transform,
+                test_transform=test_transform,
+                use_clip_mean=use_clip_mean)
+    elif "domain" in args.dataset:
+        """
+        Get DomainNet Calibration Datasets
+        """
+        if cal_dataset == "id-c":
+            clean_test_loader = get_corrupted_loader(args,dataset=args.dataset,corruption_name=corruption, severity=severity, use_clip_mean=use_clip_mean)
+        elif cal_dataset == "id-clean": 
+            train_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+            test_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+            _, clean_test_loader = get_dataloaders(args=args,
+                train_aug="test",
+                test_aug="test",
+                train_transform=train_transform,
+                test_transform=test_transform,
+                use_clip_mean=use_clip_mean)
+        elif "domain" in cal_dataset and "sketch" not in cal_dataset:
+            """
+            Get other domains ('clipart','painting','real')
+            """
+            clean_test_loader = get_oodloader(args,dataset=cal_dataset,use_clip_mean=use_clip_mean)
+    return clean_test_loader
