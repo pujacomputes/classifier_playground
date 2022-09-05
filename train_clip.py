@@ -51,6 +51,7 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
         print("****** Freezing Batchnorm Parameters ******") 
     else:
         print("****** Updating Batchnorm Parameters ****") 
+    early_stopping_epoch = 0
     for epoch in range(start_epoch, end_epoch):
         begin_time = time.time() 
         if protocol in ['lp'] or not args.train_batchnorm: #note: protocol re-specified in the main function as lp or ft ONLY. 
@@ -87,18 +88,19 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
         is_best = test_acc > best_acc
         best_acc = max(test_acc, best_acc)
 
-        # if is_best:
-        #     checkpoint = {
-        #     'epoch': epoch,
-        #     'dataset': args.dataset,
-        #     'model': args.arch,
-        #     'state_dict': net.state_dict(),
-        #     'best_acc': best_acc,
-        #     'optimizer': optimizer.state_dict(),
-        #     'protocol':args.protocol
-        #     }
-        #     save_path = os.path.join(args.save, save_name + "_" + args.protocol +'_model_best.pth.tar')
-        #     torch.save(checkpoint, save_path)
+        if is_best and epoch > 10:
+            early_stopping_epoch = epoch
+            checkpoint = {
+            'epoch': epoch,
+            'dataset': args.dataset,
+            'model': args.arch,
+            'state_dict': net.state_dict(),
+            'best_acc': best_acc,
+            'optimizer': optimizer.state_dict(),
+            'protocol':args.protocol
+            }
+            save_path = os.path.join(args.save, save_name + "_" + args.protocol +'_model_best.pth.tar')
+            torch.save(checkpoint, save_path)
 
         with open(log_path, 'a') as f:
             f.write('%03d,%05d,%0.6f,%0.5f,%0.2f\n' % (
@@ -121,9 +123,9 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
         # _,ood_acc = test(net,ood_loader)
         print(
             'Epoch {0:3d} | Time {1:5d} | Train Loss {2:.4f} | Test Loss {3:.3f} | L2 Loss {4:.3f} |'
-            ' Test Error {5:.2f} | OOD Error {6:.2f}'
+            ' Test Error {5:.2f} | OOD Error {6:.2f} | EarlyStop {7}'
             .format((epoch + 1), int(time.time() - begin_time), loss_ema,
-                    test_loss, l2sp_loss, 100 - 100. * test_acc,100 - 100. * ood_acc))
+                    test_loss, l2sp_loss, 100 - 100. * test_acc,100 - 100. * ood_acc,early_stopping_epoch))
 
     checkpoint = {
         'epoch': epoch,
@@ -346,6 +348,7 @@ def main():
         if args.arch.lower() == 'resnet50':
             net = timm.create_model(args.arch,pretrained=False)
             net = load_moco_ckpt(model=net, args=args)
+            print("\t*** Using MoCoV2 RN50 Pretrained Model!!")
         if 'clip' in args.arch:
             encoder_type = args.arch.split("-")[-1]
             print("\t => Clip Encoder: ",encoder_type)

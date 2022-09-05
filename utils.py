@@ -262,21 +262,19 @@ def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
             hparams=hparams
             )
     elif SELECTED_AUG == 'base':
-
-        if "domain" in dataset:
-            transform = transforms.Compose(
-                [transforms.Resize(size=(256,256)),
-                transforms.RandomCrop((224,224)),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize])
-        else:
-            transform = transforms.Compose(
-            [transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(32, padding=4),
-            resize, 
+        transform = transforms.Compose(
+            [transforms.Resize(size=(256,256)),
+            transforms.RandomCrop((224,224)),
+            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize])
+        # else:
+        #     transform = transforms.Compose(
+        #     [transforms.RandomHorizontalFlip(),
+        #     transforms.RandomCrop(32, padding=4),
+        #     resize, 
+        #     transforms.ToTensor(),
+        #     normalize])
     
     elif SELECTED_AUG in ['test','fgsm'] or "vat" in SELECTED_AUG:
         transform = transforms.Compose(
@@ -390,7 +388,7 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
             transform=test_transform) 
         NUM_CLASSES=40
     elif "living17" in args.dataset.lower():
-        test_transform = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+        test_dataset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
             breeds_name='living17', 
             info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
             source=True, 
