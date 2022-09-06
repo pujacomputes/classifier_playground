@@ -710,7 +710,7 @@ def main():
                 calib_acc, calib_err = test_cal_domainnet(net, calib_data, args) 
                 print("=> Domainnet, {1}, Calib. Err.: {0:.4f}".format(calib_err,calib_data))
                 with open("{}/calibration-sketch-v2.csv".format(safety_logs_prefix),"a") as f:
-                    write_str = "{save_name},{calib:.4f}\n".format(save_name=save_name,calib=calib_err)
+                    write_str = "{save_name},{cal_data},{calib:.4f}\n".format(save_name=save_name,cal_data=calib_data, calib=calib_err)
                     f.write(write_str)
                 with open("{}/domainet-cal-acc.csv".format(safety_logs_prefix),"a") as f:
                     write_str = "{save_name},{cal_data},{acc:.4f}\n".format(save_name=save_name,acc=calib_acc,cal_data=calib_data)
