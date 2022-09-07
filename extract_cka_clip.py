@@ -118,7 +118,6 @@ class CKA:
                 if name in self.model1_layers:
                     self.model1_info['Layers'] += [name]
                     layer.register_forward_hook(partial(self._log_layer, "model1", name))
-                    print("SET HOOK: ",name)
             else:
                 self.model1_info['Layers'] += [name]
                 layer.register_forward_hook(partial(self._log_layer, "model1", name))
@@ -297,6 +296,11 @@ def arg_parser():
         type=int,
         default=1
     ) 
+    
+    parser.add_argument(
+        '--save_name',
+        type=str,
+    )
     
     args = parser.parse_args()
     return args  
@@ -653,5 +657,20 @@ def main():
         print(train_results)
         print("*****************************") 
 
+    """"
+    Save the diagonal values to log file.
+    """
+    safety_logs_prefix = "/usr/workspace/trivedi1/clip_experiments_aaai/clip_safety_logs"
+    print("=> Save Name:",args.save_name)
+    test_results_diag = np.diag(test_results['CKA'].numpy())
+    test_results_diag = np.round(test_results_diag,4)
+    print("=> Avg CKA: {0:.4f}".format(np.mean(test_results_diag))) 
+    avg_cka = np.round(np.mean(test_results_diag),4)
+    test_results_diag = test_results_diag.tolist()
+    test_results_diag = [np.round(i,4) for i in test_results_diag]
+    print("=> CKAs: ",test_results_diag)
+    with open("{}/cka.csv".format(safety_logs_prefix),"a") as f:
+        write_str = "{save_name},{dataset},{avg_cka:.4f},{cka}\n".format(save_name=args.save_name,dataset=args.dataset_1,avg_cka=avg_cka, cka=test_results_diag)
+        f.write(write_str)
 if __name__ == '__main__':
     main()

@@ -495,7 +495,7 @@ def arg_parser_eval():
         '--dataset',
         type=str,
         default='cifar10',
-        choices=['cifar10', 'cifar100','domainnet-sketch'],
+        choices=['cifar10', 'cifar100','domainnet-sketch','living17'],
         help='Choose ID dataset')
     parser.add_argument(
         '--corruption_path',
@@ -713,6 +713,19 @@ def main():
                     write_str = "{save_name},{cal_data},{calib:.4f}\n".format(save_name=save_name,cal_data=calib_data, calib=calib_err)
                     f.write(write_str)
                 with open("{}/domainet-cal-acc.csv".format(safety_logs_prefix),"a") as f:
+                    write_str = "{save_name},{cal_data},{acc:.4f}\n".format(save_name=save_name,acc=calib_acc,cal_data=calib_data)
+                    f.write(write_str)
+        elif "living17" in args.dataset:
+            for calib_data in args.cal_datasets:
+                print("="*30)
+                print("=> Calib Dataset: ",calib_data)
+                print("="*30)
+                calib_acc, calib_err = test_cal_domainnet(net, calib_data, args) 
+                print("=> Living17, {1}, Calib. Err.: {0:.4f}".format(calib_err,calib_data))
+                with open("{}/living17-calibration-sketch-v2.csv".format(safety_logs_prefix),"a") as f:
+                    write_str = "{save_name},{cal_data},{calib:.4f}\n".format(save_name=save_name,cal_data=calib_data, calib=calib_err)
+                    f.write(write_str)
+                with open("{}/living17-cal-acc.csv".format(safety_logs_prefix),"a") as f:
                     write_str = "{save_name},{cal_data},{acc:.4f}\n".format(save_name=save_name,acc=calib_acc,cal_data=calib_data)
                     f.write(write_str)
         elif "cifar" in args.dataset:

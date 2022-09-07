@@ -51,10 +51,13 @@ def get_image_paths_by_class(data_dir, idx_to_class_id, subclasses, split):
     image_paths_and_class = []
     for idx in range(len(subclasses)):
         for subclass in subclasses[idx]:
-            subclass_image_paths_breeds_class = get_image_paths_breeds_class(
-                data_dir + '/' + idx_to_class_id[subclass] + '/', idx)
-            image_paths_and_class.extend(subclass_image_paths_breeds_class)
-            # print(data_dir + '/' + idx_to_class_id[subclass] + '/', len(subclass_image_names))
+            try:
+                subclass_image_paths_breeds_class = get_image_paths_breeds_class(
+                    data_dir + '/' + idx_to_class_id[subclass] + '/', idx)
+                image_paths_and_class.extend(subclass_image_paths_breeds_class)
+                # print(data_dir + '/' + idx_to_class_id[subclass] + '/', len(subclass_image_names))
+            except:
+                pdb.set_trace()
             if split == 'train':
                 assert(len(subclass_image_paths_breeds_class) >= MIN_NUM_TRAIN_PER_CLASS)
             else:
@@ -109,8 +112,7 @@ class Breeds(Dataset):
     def get_num_classes(self):
         return len(self._idx_to_class_id)
 
-
-class BreedsPT(Dataset):
+class Breeds_C(Dataset):
     def __init__(self, root, breeds_name,
                  info_dir='/usr/workspace/trivedi1/vision_data/breeds_info',
                  source=True, target=False, split='train', transform=None):
@@ -128,7 +130,7 @@ class BreedsPT(Dataset):
         self._transform = transform
         self._info_dir = info_dir
         self._data_dir = root + '/' + split
-        self._idx_to_class_id, self._class_to_idx = get_classes(self._data_dir)
+        self._idx_to_class_id, self._class_to_idx = get_classes("/usr/workspace/trivedi1/vision_data/ImageNet"+"/"+split)
         breeds_func = BREEDS_SPLITS_TO_FUNC[breeds_name]
         self._superclasses, self._subclass_split, self._label_map = breeds_func(self._info_dir, split="rand")
         self._subclasses = []
@@ -158,6 +160,7 @@ class BreedsPT(Dataset):
     def get_num_classes(self):
         return len(self._idx_to_class_id)
 
+
 if __name__ == '__main__':
     # bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
     #     breeds_name='entity30', 
@@ -178,15 +181,16 @@ if __name__ == '__main__':
     bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
         breeds_name='living17', 
         info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
-        source=True, target=False, split='train', transform=None)
-    print("Living17, train: ",len(bdatset))
-    bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
-        breeds_name='living17', 
-        info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
-        source=True, target=False, split='val', transform=None)
-    print("Living17, test: ",len(bdatset))
-    bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
-        breeds_name='living17', 
-        info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
-        source=False, target=True, split='val', transform=None)
-    print("Living17, target, test: ",len(bdatset))
+        source=True, target='val', split='train', transform=None)
+    # print("Living17, train: ",len(bdatset))
+    # bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+    #     breeds_name='living17', 
+    #     info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+    #     source=True, target=False, split='val', transform=None)
+    # print("Living17, test: ",len(bdatset))
+    # bdatset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+    #     breeds_name='living17', 
+    #     info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+    #     source=False, target=True, split='val', transform=None)
+    # print("Living17, target, test: ",len(bdatset))
+    pdb.set_trace()

@@ -9,7 +9,7 @@ import torchvision.transforms as transforms
 import torch.nn.functional as F
 from cifar10p1 import CIFAR10p1
 import domainnet
-from breeds import Breeds
+from breeds import Breeds, Breeds_C
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -149,17 +149,25 @@ def get_corrupted_loader(args,dataset,corruption_name, severity, use_clip_mean=F
     else:
         normalize = transforms.Normalize(norm_dict[args.dataset+"_mean"], norm_dict[args.dataset + "_std"])
     transform = transforms.Compose([transforms.Resize((224,224)), transforms.ToTensor(),normalize])
-    if "domainnet" not in dataset:
+    if "cifar" in dataset:
         print("**** EXITING ****")
         print("Use npy files for CIFAR-10-C")
         exit()
-    else:
+    elif "domainnet" in dataset:
         domain_name = dataset.split("-")[-1]
         ood_dataset = domainnet.DomainNet(domain=domain_name, 
             split='test',
             root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet-Corrupted/{}/{}".format(corruption_name,severity),
             transform=transform,
             verbose=False) 
+    elif "living17" in dataset:
+        ood_dataset = Breeds_C(root="/usr/workspace/trivedi1/vision_data/Living17-Corrupted/{}/{}".format(corruption_name,severity),
+                breeds_name='living17', 
+                info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+                source=True, #id-c, we will add ood-c in another iteration.
+                target=False, 
+                split='val', 
+                transform=transform) 
     def wif(id):
         uint64_seed = torch.initial_seed()
         ss = np.random.SeedSequence([uint64_seed])
@@ -993,4 +1001,26 @@ def get_calibration_loader(args,cal_dataset,corruption=None, severity=None,clean
             Get other domains ('clipart','painting','real')
             """
             clean_test_loader = get_oodloader(args,dataset=cal_dataset,use_clip_mean=use_clip_mean)
+    elif "living17" in args.dataset:
+        """
+        Get DomainNet Calibration Datasets
+        """
+        if cal_dataset == "id-c":
+            clean_test_loader = get_corrupted_loader(args,dataset=args.dataset,corruption_name=corruption, severity=severity, use_clip_mean=use_clip_mean)
+        elif cal_dataset == "id-clean": 
+            train_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+            test_transform = get_transform(dataset=args.dataset, SELECTED_AUG="test",use_clip_mean=use_clip_mean)
+            _, clean_test_loader = get_dataloaders(args=args,
+                train_aug="test",
+                test_aug="test",
+                train_transform=train_transform,
+                test_transform=test_transform,
+                use_clip_mean=use_clip_mean)
+        elif "ood" in cal_dataset: 
+            """
+            Get Subpopulation Shift Living17 
+            """
+            clean_test_loader = get_oodloader(args,dataset=cal_dataset,use_clip_mean=use_clip_mean)
+        else:
+            print("LOADER IS NOT IMPLEMENTED")
     return clean_test_loader
