@@ -3,7 +3,7 @@ from PIL import Image
 import pandas as pd
 
 class Living17(Dataset):
-    def __init__(self, root="/usr/workspace/trivedi1/vision_data/breeds", 
+    def __init__(self, root="/usr/workspace/trivedi1/vision_data/breeds/", 
             train_path_file="/usr/workspace/trivedi1/vision_data/Living-17/living17_source_val.csv",
             test_path_file="/usr/workspace/trivedi1/vision_data/Living-17/living17_target_val.csv",
             transform=None,
@@ -41,7 +41,7 @@ class Living17(Dataset):
         return x, y
 
     def __len__(self) -> int:
-        return len(self._image_paths_by_class)
+        return len(self.data)
 
     def get_num_classes(self):
         return 17 

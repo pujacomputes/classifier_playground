@@ -111,7 +111,7 @@ def test_cal_domainnet(net, cal_dataset, args):
         calib_score = np.mean(calib_scores)
         print("Average Calibration: {} Average Corruption: {}".format(calib_score,acc))
     
-    elif cal_dataset in ['id-clean'] or 'domain' in cal_dataset:
+    elif cal_dataset in ['id-clean','ood'] or 'domain' in cal_dataset:
         num_correct = 0
         confidence = []
         correct = []
@@ -602,6 +602,8 @@ def main():
 
     if "clip" in args.arch:
         safety_logs_prefix = "/usr/workspace/trivedi1/clip_experiments_aaai/clip_safety_logs"
+    elif "living17" in args.dataset:
+        safety_logs_prefix = "/usr/workspace/trivedi1/living17_experiments_aaai/safety_logs" 
     else:
         safety_logs_prefix = "/p/lustre1/trivedi1/compnets/classifier_playground/safety_logs/"
     save_name = args.save_name

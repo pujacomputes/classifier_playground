@@ -2,6 +2,7 @@ from random import shuffle
 # from torch_cka import CKA
 import os
 import time
+from breeds import Breeds
 import torch
 import timm
 import tqdm 
@@ -224,7 +225,7 @@ def arg_parser():
         '--dataset_1',
         type=str,
         default='domainnet-sketch',
-        choices=['cifar10','stl10','STL10','domainnet-sketch','domainnet-real'])
+        choices=['cifar10','stl10','STL10','domainnet-sketch','domainnet-real','living17'])
     
     parser.add_argument(
         '--dataset_2',
@@ -392,6 +393,14 @@ def get_dataloaders(args,dataset,train_aug, test_aug, train_transform,test_trans
                 split='train',
                 root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
                 transform=train_transform) 
+        elif "living17" in dataset.lower():
+            train_dataset= Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+                breeds_name='living17', 
+                info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+                source=True, 
+                target=False, 
+                split='train', 
+                transform=train_transform) 
         else:
             print("***** ERROR ERROR ERROR ******")
             print("=> Invalid Dataset Selected, Exiting")
@@ -430,6 +439,14 @@ def get_dataloaders(args,dataset,train_aug, test_aug, train_transform,test_trans
                 split='train',
                 root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
                 transform=normalize) 
+        elif "living17" in args.dataset.lower():
+            train_dataset= Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+                breeds_name='living17', 
+                info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+                source=True, 
+                target=False, 
+                split='train', 
+                transform=normalize) 
     """
     Create Test Dataloaders.
     """
@@ -459,6 +476,14 @@ def get_dataloaders(args,dataset,train_aug, test_aug, train_transform,test_trans
             root="/usr/workspace/wsa/trivedi1/vision_data/DomainNet",
             transform=test_transform) 
         NUM_CLASSES=40
+    elif "living17" in dataset.lower():
+        test_dataset = Breeds(root='/usr/workspace/trivedi1/vision_data/ImageNet', 
+            breeds_name='living17', 
+            info_dir='/usr/workspace/trivedi1/vision_data/BREEDS-Benchmarks/imagenet_class_hierarchy/modified',
+            source=True, 
+            target=False, 
+            split='val', 
+            transform=test_transform) 
     
     else:
         print("***** ERROR ERROR ERROR ******")
@@ -498,7 +523,7 @@ def main():
     Create Model 1
     """
  
-    if "clip" in args.model_1_ckpt:
+    if "clip" in args.model_1_ckpt and "scratch" not in args.model_1_ckpt:
         encoder_type = args.arch.split("-")[-1]
         print("\t => Clip Encoder: ",encoder_type)
         net_1 = clip_model.ClipModel(model_name=encoder_type,scratch=True)
@@ -509,21 +534,40 @@ def main():
         print("LOADED M1 CKPT")
         print("Incompatible Keys: ",incomp)
         print("Unexpected Keys: ",unexpected) 
-    if "scratch" in args.model_1_ckpt: #load a image-net pretrained clip only.
+        m1_name = args.model_1_ckpt 
+    elif "resnet50" in args.model_1_ckpt and "scratch" not in args.model_1_ckpt:
+        net_1 = timm.create_model(args.arch,pretrained=False)
+        net_1.reset_classifier(NUM_CLASSES_DICT[args.dataset_1])
+        net_1 = torch.nn.DataParallel(net_1,device_ids=[0]).cuda()
+        ckpt = torch.load(args.model_1_ckpt)
+        incomp,unexpected = net_1.load_state_dict(ckpt['state_dict'])
+        print("LOADED M1 CKPT")
+        print("Incompatible Keys: ",incomp)
+        print("Unexpected Keys: ",unexpected) 
+        m1_name = args.model_1_ckpt 
+    elif "scratch-clip" in args.model_1_ckpt: #load a image-net pretrained clip only.
         encoder_type = args.arch.split("-")[-1]
         print("\t => Clip Encoder: ",encoder_type)
         net_1 = clip_model.ClipModel(model_name=encoder_type,scratch=False)
         net_1.reset_classifier(NUM_CLASSES_DICT[args.dataset_1])
         net_1 = torch.nn.DataParallel(net_1,device_ids=[0]).cuda()
         print("M1 Uses PRETRAINED CLIP.")
-
-    m1_name = args.model_1_ckpt 
-
+        m1_name = "scratch" 
+    elif "scratch-rn50" in args.model_1_ckpt: #load a image-net pretrained clip only.
+        net_1 = timm.create_model(args.arch,pretrained=False)
+        net_1.reset_classifier(NUM_CLASSES_DICT[args.dataset_1]) ##TODO: assumed to have same # of classes!
+        net_1 = load_moco_ckpt(model=net_1, pretrained_ckpt="/p/lustre1/trivedi1/vision_data/moco_v2_800ep_pretrain.pth.tar")
+        net_1 = torch.nn.DataParallel(net_1,device_ids=[0]).cuda()
+        print("M1 Uses PRETRAINED MOCOV2.")
+        m1_name = "scratch" 
+    else:
+        print("ERROR ERROR ERROR; INVALID COMBINATION SPECIFIED!")
+        exit()
     """
     Create (optional) Model 2
     """
    
-    if "clip" in args.model_2_ckpt:
+    if "clip" in args.model_2_ckpt and "scratch" not in args.model_2_ckpt:
         encoder_type = args.arch.split("-")[-1]
         print("\t => Clip Encoder: ",encoder_type)
         net_2 = clip_model.ClipModel(model_name=encoder_type,scratch=True)
@@ -535,7 +579,7 @@ def main():
         print("Incompatible Keys: ",incomp)
         print("Unexpected Keys: ",unexpected)
         m2_name = args.model_2_ckpt
-    elif "scratch" in args.model_2_ckpt: #load a image-net pretrained clip only.
+    elif "scratch-clip" in args.model_2_ckpt: #load a image-net pretrained clip only.
         encoder_type = args.arch.split("-")[-1]
         print("\t => Clip Encoder: ",encoder_type)
         net_2 = clip_model.ClipModel(model_name=encoder_type,scratch=False)
@@ -543,11 +587,21 @@ def main():
         net_2 = torch.nn.DataParallel(net_2,device_ids=[0]).cuda()
         print("Model 2, PRETRAINED CLIP.")
         m2_name = args.model_2_ckpt  
+    elif args.model_2_ckpt.lower() == "scratch-rn50":
+        net_2 = timm.create_model(args.arch,pretrained=False)
+        net_2.reset_classifier(NUM_CLASSES_DICT[args.dataset_1]) ##TODO: assumed to have same # of classes!
+        net_2 = load_moco_ckpt(model=net_2, pretrained_ckpt="/p/lustre1/trivedi1/vision_data/moco_v2_800ep_pretrain.pth.tar")
+        net_2 = torch.nn.DataParallel(net_2,device_ids=[0]).cuda()
+        print("M2 Uses PRETRAINED MOCOV2.")
+        m2_name = "scratch"
+    
     elif "none" in args.model_2_ckpt:
         print("NO MODEL 2 Specified, just using model 1") 
         net_2 = net_1 #if model 2 is not specified, use model 1 twice.
         m2_name = args.model_1_ckpt 
-
+    else:
+        print("ERROR ERROR ERROR; INVALID COMBINATION SPECIFIED!")
+        exit()
     """
     Create Dataloader 1
     """
@@ -581,48 +635,44 @@ def main():
     """
     Get accuracies.
     """
-    # ood_loader = get_oodloader(args,dataset='domainnet-real')
-    # _, n1_ood_test_acc =  test(net=net_1,test_loader=ood_loader)
-    # _, n2_ood_test_acc =  test(net=net_2,test_loader=ood_loader)
-    # print("=> M1: ",args.model_1_ckpt)
-    # print("M1,OOD Acc.: ",n1_ood_test_acc)
-    # print("=> M2: ",args.model_2_ckpt)
-    # print("M2,OOD Acc.: ",n2_ood_test_acc)
-    # _, n1_d1_test_acc =  test(net=net_1,test_loader=d1_test_loader)
-    # _, n1_d1_train_acc =  test(net=net_1,test_loader=d1_train_loader)
-    # if args.model_2_ckpt.lower() != "none":
-    #     _, n2_d1_test_acc =  test(net=net_2,test_loader=d1_test_loader)
-    #     _, n2_d1_train_acc =  test(net=net_2,test_loader=d1_train_loader)
-    # if args.dataset_2.lower() != "none": 
-    #     _, n1_d2_test_acc =  test(net=net_1,test_loader=d2_test_loader)
-    #     _, n1_d2_train_acc =  test(net=net_1,test_loader=d2_train_loader)
-    #     if args.model_2_ckpt.lower() != "none": 
-    #         _, n2_d2_test_acc =  test(net=net_2,test_loader=d2_test_loader)
-    #         _, n2_d2_train_acc =  test(net=net_2,test_loader=d2_train_loader)
-    # print("********** Accs *************") 
-    # print("M1: ",n1_d1_train_acc,n1_d1_test_acc,n1_d2_train_acc,n1_d2_test_acc,n1_ood_test_acc)
-    # print("M2: ",n2_d1_train_acc,n2_d1_test_acc,n2_d2_train_acc,n2_d2_test_acc,n2_ood_test_acc)
-    # print("*****************************") 
+    _, n1_test_acc =  test(net=net_1,test_loader=d1_test_loader)
+    print("=> M1: ",args.model_1_ckpt)
+    print("=> M1, test acc: ",n1_test_acc)
     """
     By correctly choosing which datasets to use,
     we can extract the appropriate CKA scores for
     model vs. model, ood vs id, protocol vs. protocol.
     """
     # pdb.set_trace()
-    layer_names = [
-        'module._model.visual.layer1.0.bn3', #1 
-        'module._model.visual.layer1.1.bn3',
-        'module._model.visual.layer1.2.bn3',
-        'module._model.visual.layer2.0.bn3',
-        'module._model.visual.layer2.1.bn3',
-        'module._model.visual.layer2.2.bn3',
-        'module._model.visual.layer3.0.bn3',
-        'module._model.visual.layer3.1.bn3',
-        'module._model.visual.layer3.2.bn3',
-        'module._model.visual.layer4.0.bn3',
-        'module._model.visual.layer4.1.bn3',
-        'module._model.visual.layer4.2.bn3',
-        # 'module.fc'
+    if "clip" in args.model_1_ckpt:
+        layer_names = [
+            'module._model.visual.layer1.0.bn3', #1 
+            'module._model.visual.layer1.1.bn3',
+            'module._model.visual.layer1.2.bn3',
+            'module._model.visual.layer2.0.bn3',
+            'module._model.visual.layer2.1.bn3',
+            'module._model.visual.layer2.2.bn3',
+            'module._model.visual.layer3.0.bn3',
+            'module._model.visual.layer3.1.bn3',
+            'module._model.visual.layer3.2.bn3',
+            'module._model.visual.layer4.0.bn3',
+            'module._model.visual.layer4.1.bn3',
+            'module._model.visual.layer4.2.bn3',
+            # 'module.fc'
+            ]
+    elif "resnet50" in args.model_1_ckpt: 
+        layer_names = ['module.layer1.0.bn3', #1 
+        'module.layer1.1.bn3', #2 
+        'module.layer1.2.bn3', #3
+        'module.layer2.0.bn3', #4 
+        'module.layer2.1.bn3', #5
+        'module.layer2.2.bn3', #6 
+        'module.layer3.0.bn3', #7
+        'module.layer3.1.bn3', #8
+        'module.layer3.2.bn3', #9
+        'module.layer4.0.bn3', #10
+        'module.layer4.1.bn3', #11
+        'module.layer4.2.bn3' #12
         ]
     # pdb.set_trace()
     net_1.eval()
@@ -660,7 +710,13 @@ def main():
     """"
     Save the diagonal values to log file.
     """
-    safety_logs_prefix = "/usr/workspace/trivedi1/clip_experiments_aaai/clip_safety_logs"
+    if "domain" in args.dataset_1:
+        safety_logs_prefix = "/usr/workspace/trivedi1/clip_experiments_aaai/clip_safety_logs"
+    elif "living17" in args.dataset_1:
+        safety_logs_prefix = "/usr/workspace/trivedi1/living17_experiments_aaai/safety_logs"
+    else:
+        safety_logs_prefix = "/p/lustre1/trivedi1/compnets/classifier_playground/safety_logs"
+
     print("=> Save Name:",args.save_name)
     test_results_diag = np.diag(test_results['CKA'].numpy())
     test_results_diag = np.round(test_results_diag,4)

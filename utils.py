@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from cifar10p1 import CIFAR10p1
 import domainnet
 from breeds import Breeds, Breeds_C
+from wilds_dataset import WILDS_Dataset
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -51,6 +52,14 @@ norm_dict = {
     'clip_std':[0.26862954, 0.26130258, 0.27577711],
     'domainnet_mean':[0.485, 0.456, 0.406], #from domainnet py
     'domainnet_std':[0.228, 0.224, 0.225]
+}
+
+waterbirds_selector = {
+    'waterbirds':None,
+    'landbg-landbird':[0,0,0],
+    'landbg-waterbird':[0,1,0],
+    'waterbg-landbird':[1,0,0],
+    'waterbg-waterbird':[1,1,0]
 }
 
 #https://github.com/AnanyaKumar/transfer_learning/blob/main/unlabeled_extrapolation/baseline_train.py
@@ -124,6 +133,15 @@ def get_oodloader(args,dataset,use_clip_mean=False):
             target=True, 
             split='val', 
             transform=transform)
+    elif "bird" in args.dataset.lower():
+        ood_dataset = WILDS_Dataset(dataset_name="waterbirds", 
+            split="test", 
+            root= "/usr/workspace/trivedi1/vision_data/Waterbirds", 
+            meta_selector=waterbirds_selector[args.dataset.lower()], 
+            transform=transform, 
+            download=False,
+            return_meta=False)  
+    
     else:
         print("ERROR ERROR ERROR")
         print("Not Implemented Yet. Exiting")
@@ -168,6 +186,18 @@ def get_corrupted_loader(args,dataset,corruption_name, severity, use_clip_mean=F
                 target=False, 
                 split='val', 
                 transform=transform) 
+    elif "bird" in args.dataset.lower():
+        """
+        Get corrupted water birds 
+        """
+        ood_dataset = WILDS_Dataset(dataset_name="waterbirds", 
+            split="test", 
+            root= "/usr/workspace/trivedi1/vision_data/Waterbirds-C", 
+            meta_selector=waterbirds_selector[args.dataset.lower()], 
+            transform=transform, 
+            download=False,
+            return_meta=False)     
+    
     def wif(id):
         uint64_seed = torch.initial_seed()
         ss = np.random.SeedSequence([uint64_seed])
@@ -284,7 +314,7 @@ def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
         #     transforms.ToTensor(),
         #     normalize])
     
-    elif SELECTED_AUG in ['test','fgsm'] or "vat" in SELECTED_AUG:
+    elif SELECTED_AUG in ['test','fgsm'] or "vat" in SELECTED_AUG or "soup" in SELECTED_AUG:
         transform = transforms.Compose(
             [transforms.Resize((224,224)), transforms.ToTensor(),normalize])
     elif SELECTED_AUG == 'pixmix':
@@ -327,6 +357,14 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
                 target=False, 
                 split='train', 
                 transform=train_transform) 
+        elif "waterbirds" in args.dataset.lower():
+            train_dataset = WILDS_Dataset(dataset_name="waterbirds", 
+                split="train", 
+                root= "/usr/workspace/trivedi1/vision_data/Waterbirds", 
+                meta_selector=None, 
+                transform=train_transform, 
+                download=False,
+                return_meta=False) 
         else:
             print("***** ERROR ERROR ERROR ******")
             print("Invalid Dataset Selected, Exiting")
@@ -371,6 +409,14 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
                 target=False, 
                 split='train', 
                 transform=normalize) 
+        elif "waterbirds" in args.dataset.lower():
+            train_dataset = WILDS_Dataset(dataset_name="waterbirds", 
+                split="train", 
+                root= "/usr/workspace/trivedi1/vision_data/Waterbirds", 
+                meta_selector=None, 
+                transform=normalize, 
+                download=False,
+                return_meta=False)  
         else:
             print("***** ERROR ERROR ERROR ******")
             print("Invalid Dataset Selected, Exiting")
@@ -411,6 +457,15 @@ def get_dataloaders(args,train_aug, test_aug, train_transform,test_transform,use
             target=False, 
             split='val', 
             transform=test_transform)  
+    elif "waterbirds" in args.dataset.lower():
+        test_dataset = WILDS_Dataset(dataset_name="waterbirds", 
+            split="test", 
+            root= "/usr/workspace/trivedi1/vision_data/Waterbirds", 
+            meta_selector=None, 
+            transform=test_transform, 
+            download=False,
+            return_meta=False)  
+    
     else:
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
@@ -547,7 +602,7 @@ def arg_parser():
         '--protocol',
         type=str,
         default='lp',
-        choices=['lp', 'ft', 'lp+ft','lpfrz+ft','sklp','sklp+ft','vatlp','vatlp+ft','voslp','voslp+ft','fgsmlp','fgsmlp+ft'])
+        choices=['lp', 'ft', 'lp+ft','lpfrz+ft','sklp','sklp+ft','vatlp','vatlp+ft','voslp','voslp+ft','fgsmlp','fgsmlp+ft','soup-avg-lp','soup-avg-lp+ft'])
     parser.add_argument(
         '--pretrained_ckpt',
         type=str,
@@ -703,6 +758,13 @@ def arg_parser():
     parser.set_defaults(train_batchnorm=True)
 
     """
+    Using Bias in cls?
+    """    
+    parser.add_argument('--use-bias', action='store_true')
+    parser.add_argument('--no-bias', dest='use_bias', action='store_false')
+    parser.set_defaults(use_bias=True)
+
+    """
     Simplicity Bias
     """
     parser.add_argument('--correlation_strength', type=float, default=0.89,help="How strong the correlation is for blended cifar-mnist")
@@ -712,6 +774,7 @@ def arg_parser():
     """
     parser.add_argument('--eps', type=float, default=0.001,help="Episilon for LP Training (Hidden Space Adv. Training!)")
     parser.add_argument('--num_steps', type=int, default=20,help="How many steps for PGD Attack")
+    parser.add_argument('--num_cls', type=int, default=20,help="How many steps for PGD Attack")
     args = parser.parse_args()
     return args 
 
@@ -1020,7 +1083,9 @@ def get_calibration_loader(args,cal_dataset,corruption=None, severity=None,clean
             """
             Get Subpopulation Shift Living17 
             """
-            clean_test_loader = get_oodloader(args,dataset=cal_dataset,use_clip_mean=use_clip_mean)
+            clean_test_loader = get_oodloader(args,
+                dataset="living17", #intentional!
+                use_clip_mean=use_clip_mean)
         else:
             print("LOADER IS NOT IMPLEMENTED")
     return clean_test_loader
