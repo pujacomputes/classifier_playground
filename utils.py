@@ -36,6 +36,8 @@ NUM_CLASSES_DICT = {
 norm_dict = {
     'cifar10_mean':[0.485, 0.456, 0.406],
     'cifar10_std': [0.228, 0.224, 0.225],
+    'mnist_mean':[0.485, 0.456, 0.406],
+    'mnist_std': [0.228, 0.224, 0.225],
     'living17_mean':[0.485, 0.456, 0.406],
     'living17_std': [0.228, 0.224, 0.225],
     'entity30_mean':[0.485, 0.456, 0.406],
@@ -234,6 +236,9 @@ def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
     elif "entity30" in dataset:
         num_classes = 30
         crop_size=224
+    elif "mnist" in dataset.lower():
+        num_classes = 10
+        crop_size=224
     else:
         print("***** ERROR ERROR ERROR ******")
         print("Invalid Dataset Selected, Exiting")
@@ -315,8 +320,19 @@ def get_transform(dataset,SELECTED_AUG,use_clip_mean=False):
         #     normalize])
     
     elif SELECTED_AUG in ['test','fgsm'] or "vat" in SELECTED_AUG or "soup" in SELECTED_AUG:
-        transform = transforms.Compose(
-            [transforms.Resize((224,224)), transforms.ToTensor(),normalize])
+        if dataset.lower() == "mnist":
+            class convert_channels:
+                def __init__(self,dim=0):
+                    self.dim = 0
+                def __call__(self,x):
+                    x = 0.8 * x
+                    return x.repeat(3,1,1)
+            to_three_channel = convert_channels()
+            transform = transforms.Compose(
+                [transforms.Resize((224,224)), transforms.ToTensor(),to_three_channel, normalize ])
+        else:
+            transform = transforms.Compose(
+                [transforms.Resize((224,224)), transforms.ToTensor(),normalize])
     elif SELECTED_AUG == 'pixmix':
         print("Not Implemented yet!")
 

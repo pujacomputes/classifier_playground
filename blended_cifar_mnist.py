@@ -1,3 +1,4 @@
+from re import I
 import torch
 import torchvision
 import numpy as np
@@ -9,7 +10,7 @@ import torch.nn.functional as F
 import pdb
 
 class blendedCIFARMNIST(torch.utils.data.Dataset):
-    def __init__(self, train=True, transform=None,randomized=False,correlation_strength=0.9):
+    def __init__(self, train=True, transform=None,randomized=False,correlation_strength=0.9,return_simple_label=False,use_paired=True):
         if train:
             cifar_train_bool = True
             mnist_train_bool = True
@@ -25,6 +26,7 @@ class blendedCIFARMNIST(torch.utils.data.Dataset):
                                                         download=True,
                                                         transform = None)
         self.randomized = randomized
+        self.use_paired = use_paired
         # print(len(self.cifar10_dataset),len(self.mnist_dataset))
         self.correlation_strength = correlation_strength
         self.mapper_dict = self.make_cifar_mnist_dict()
@@ -32,31 +34,15 @@ class blendedCIFARMNIST(torch.utils.data.Dataset):
         self.pad_mnist = transforms.Pad(2)
         self.normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225])
         self.to_tensor = transforms.ToTensor()
-        self.resize = transforms.Resize((224,224))
-
-    def make_blended(self,cifar_image, mnist_image):
-        # select random location to paste
-        # select random size of digit
-        # paste the images
-
-        offset_x = np.random.randint(10)
-        offset_y = np.random.randint(10)
-
-        resize_val = np.random.randint(10,28)
-
-        mnist_image = transforms.functional.resize(mnist_image, resize_val)
-        mnist_image = 0.8 * transforms.functional.to_tensor(mnist_image)
-        mnist_image = transforms.functional.to_pil_image(mnist_image)
-
-        cifar_image.paste(mnist_image, (offset_x,offset_y), mnist_image)
-
-        return cifar_image
-
-
+        if self.use_paired:
+            self.resize = transforms.Resize((158,158))
+        else:
+            self.resize = transforms.Resize((224,224))
+        self.return_simple_label = return_simple_label
     def make_cifar_mnist_dict(self):
         mapper_dict = {}
         reassignment_amount = 1-self.correlation_strength
-
+        reassignment_amount_per_class = -1
         if self.randomized:
             #breaks the easy correlation 
             for k,v in zip(range(len(self.cifar10_dataset)),range(len(self.mnist_dataset))):
@@ -77,7 +63,6 @@ class blendedCIFARMNIST(torch.utils.data.Dataset):
             Note: this code will be replaced with something more efficient later. 
             right now, priority is to carefully control the spurious correlation.
             """
-            reassignment_amount_per_class = -1
             if self.correlation_strength != 1.0:
                 reassigned_mnist_indices = []
                 reassignment_amount_per_class = int((reassignment_amount * len(c_l)) / 10)
@@ -112,11 +97,52 @@ class blendedCIFARMNIST(torch.utils.data.Dataset):
             if mlabel != label:
                 count_disagrees += 1
 
-        print() 
+        print("="*30)
+        print("Randomized?: ",self.randomized) 
         print("Reassignment Amount -- {0:.3f} -- Per Class -- {1}".format(reassignment_amount,reassignment_amount_per_class))
         print("Percentage Disagreements:{0:.3f}".format(count_disagrees/len(mapper_dict.items())))
-        print() 
+        print("="*30)
         return mapper_dict 
+    
+    
+    def make_blended(self,cifar_image, mnist_image):
+        # select random location to paste
+        # select random size of digit
+        # paste the images
+
+        offset_x = np.random.randint(10)
+        offset_y = np.random.randint(10)
+
+        resize_val = np.random.randint(10,28)
+
+        mnist_image = transforms.functional.resize(mnist_image, resize_val)
+        mnist_image = 0.8 * transforms.functional.to_tensor(mnist_image) #alpha
+        mnist_image = transforms.functional.to_pil_image(mnist_image)
+
+        cifar_image.paste(mnist_image, (offset_x,offset_y), mnist_image)
+        cifar_image = self.resize(cifar_image)
+        cifar_image = self.to_tensor(cifar_image)
+        cifar_image = self.normalize(cifar_image)
+        return cifar_image
+
+    def make_paired(self,cifar_image,mnist_image):
+        """
+        Each half of the image is 158 x 158.
+        This ensures that the stacked version is the right size.
+        """
+
+        mnist_image = self.pad_mnist(mnist_image)
+        mnist_image = self.resize(mnist_image)
+        mnist_image = self.to_tensor(mnist_image)
+        mnist_image = mnist_image.repeat(3,1,1) 
+
+        cifar_image = self.resize(cifar_image)
+        cifar_image = self.to_tensor(cifar_image)
+        cifar_image = torch.cat([cifar_image,mnist_image],dim=1)
+        cifar_image = self.normalize(cifar_image)
+        
+        return cifar_image
+    
 
     def __len__(self):
         return len(self.cifar10_dataset)
@@ -128,16 +154,18 @@ class blendedCIFARMNIST(torch.utils.data.Dataset):
         #get MNIST part
         msample, mlabel = self.mnist_dataset[mnist_idx]
 
-        #blend samples        
-        new_sample = self.make_blended(sample.copy(),msample )
-        new_sample = self.resize(new_sample)
-        new_sample = self.to_tensor(new_sample)
-        new_sample = self.normalize(new_sample)
-
-        return new_sample,label
+        if self.use_paired:
+            new_sample = self.make_paired(sample.copy(),msample )
+        else:
+            new_sample = self.make_blended(sample.copy(),msample )
+        
+        if self.return_simple_label:
+            return new_sample, mlabel
+        else:
+            return new_sample,label
 
 class blendedSTLMNIST(torch.utils.data.Dataset):
-    def __init__(self, train=True, transform=None,randomized=False):
+    def __init__(self, train=True, transform=None,randomized=False,return_simple_label=False,use_paired=True):
         if train:
             stl_train_bool = "train"
             mnist_train_bool = True
@@ -158,13 +186,18 @@ class blendedSTLMNIST(torch.utils.data.Dataset):
                                                         download=True,
                                                         transform = None)
         self.randomized = randomized
+        self.use_paired=use_paired
         # print(len(self.stl_dataset),len(self.mnist_dataset))
         self.mapper_dict = self.make_cifar_mnist_dict()
         self.transform = transform
         self.pad_mnist = transforms.Pad(2)
-        self.resize = transforms.Resize((224,224))
+        if self.use_paired:
+            self.resize = transforms.Resize((158,158))
+        else:
+            self.resize = transforms.Resize((224,224))
         self.normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225])
         self.to_tensor = transforms.ToTensor()
+        self.return_simple_label=return_simple_label
     def make_cifar_mnist_dict(self):
         mapper_dict = {}
         if self.randomized:
@@ -181,7 +214,6 @@ class blendedSTLMNIST(torch.utils.data.Dataset):
                     mapper_dict[k] = v
     
         return mapper_dict
-
     def make_blended(self,cifar_image, mnist_image):
         # select random location to paste
         # select random size of digit
@@ -193,11 +225,31 @@ class blendedSTLMNIST(torch.utils.data.Dataset):
         resize_val = np.random.randint(10,28)
 
         mnist_image = transforms.functional.resize(mnist_image, resize_val)
-        mnist_image = 0.8 * transforms.functional.to_tensor(mnist_image)
+        mnist_image = 0.8 * transforms.functional.to_tensor(mnist_image) #alpha
         mnist_image = transforms.functional.to_pil_image(mnist_image)
 
         cifar_image.paste(mnist_image, (offset_x,offset_y), mnist_image)
+        cifar_image = self.resize(cifar_image)
+        cifar_image = self.to_tensor(cifar_image)
+        cifar_image = self.normalize(cifar_image)
+        return cifar_image
+    
+    def make_paired(self,cifar_image,mnist_image):
+        """
+        Each half of the image is 158 x 158.
+        This ensures that the stacked version is the right size.
+        """
 
+        mnist_image = self.pad_mnist(mnist_image)
+        mnist_image = self.resize(mnist_image)
+        mnist_image = self.to_tensor(mnist_image)
+        mnist_image = mnist_image.repeat(3,1,1) 
+
+        cifar_image = self.resize(cifar_image)
+        cifar_image = self.to_tensor(cifar_image)
+        cifar_image = torch.cat([cifar_image,mnist_image],dim=1)
+        cifar_image = self.normalize(cifar_image)
+        
         return cifar_image
 
     def __len__(self):
@@ -211,10 +263,12 @@ class blendedSTLMNIST(torch.utils.data.Dataset):
         #get MNIST part
         msample, mlabel = self.mnist_dataset[mnist_idx]
 
-        #blend samples        
-        new_sample = self.make_blended(sample.copy(),msample )
-        new_sample = self.resize(new_sample)
-        new_sample = self.to_tensor(new_sample)
-        new_sample = self.normalize(new_sample)
-
-        return new_sample,label
+        if self.use_paired:
+            new_sample = self.make_paired(sample.copy(),msample )
+        else:
+            new_sample = self.make_blended(sample.copy(),msample )
+        
+        if self.return_simple_label:
+            return new_sample, mlabel
+        else:
+            return new_sample,label
