@@ -46,88 +46,35 @@ def train_loop(
     best_acc = 0
     weight_dict_initial, _ = get_param_weights_counts(net, detach=True)
     # if 'ft' in protocol:
-    if "paired" in args.dataset:
-        ood_dataset = pairedSTLMNIST(train=False, transform=None)
-        ood_loader = torch.utils.data.DataLoader(
-            ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        random_ood_dataset = pairedSTLMNIST(
-            train=False, transform=None, randomized=True
-        )
-        random_ood_loader = torch.utils.data.DataLoader(
-            random_ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-    elif "blended" in args.dataset:
-        """
-        Get spuriously correlated OOD datasets.
-        """
-        ood_dataset = blendedSTLMNIST(train=False, transform=None,use_paired=True)
-        ood_loader = torch.utils.data.DataLoader(
-            ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        random_ood_dataset = blendedSTLMNIST(
-            train=False, transform=None, randomized=True,use_paired=True
-        )
-        random_ood_loader = torch.utils.data.DataLoader(
-            random_ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        random_id_test = blendedCIFARMNIST(train=False, randomized=True,use_paired=True)
-        random_id_loader = torch.utils.data.DataLoader(
-            random_id_test,
-            batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        
-
-        # """
-        # Get the plain cifar/mnist dataloaders
-        # """
-        # test_transform = get_transform("cifar10","test",use_clip_mean=False)
-        # complex_feat_dataset = torchvision.datasets.CIFAR10(
-        #     root="/p/lustre1/trivedi1/vision_data", 
-        #     train=False,
-        #     transform=test_transform
-        # )
-        # complex_feat_loader = torch.utils.data.DataLoader(
-        #     complex_feat_dataset,
-        #     batch_size=args.batch_size,
-        #     shuffle=True,
-        #     num_workers=args.num_workers,
-        #     pin_memory=True,
-        # )
-
-        # simple_feat_dataset = torchvision.datasets.MNIST(
-        #     root="/p/lustre1/trivedi1/vision_data",
-        #     train=False,
-        #     download=True,
-        #     transform=get_transform("mnist","test",use_clip_mean=False),
-        # )
-        # simple_feat_loader = torch.utils.data.DataLoader(
-        #     simple_feat_dataset,
-        #     batch_size=args.batch_size,
-        #     shuffle=True,
-        #     num_workers=args.num_workers,
-        #     pin_memory=True,
-        # )
-
+    """
+    Get spuriously correlated OOD datasets.
+    """
+    ood_dataset = blendedSTLMNIST(train=False, transform=None, use_paired=True)
+    ood_loader = torch.utils.data.DataLoader(
+        ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    random_ood_dataset = blendedSTLMNIST(
+        train=False, transform=None, randomized=True, use_paired=True
+    )
+    random_ood_loader = torch.utils.data.DataLoader(
+        random_ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    random_id_test = blendedCIFARMNIST(train=False, randomized=True, use_paired=True)
+    random_id_loader = torch.utils.data.DataLoader(
+        random_id_test,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
 
     print("=> Beginning training from epoch:", start_epoch + 1)
     l2sp_loss = -1
@@ -193,14 +140,14 @@ def train_loop(
         test_loss, spur_id_acc = test(net, test_loader)
 
         ood_acc = -1
-        complex_feat_acc=-1
-        simple_feat_acc=-1
+        complex_feat_acc = -1
+        simple_feat_acc = -1
         _, spur_ood_acc = test(net, ood_loader)
-        _, rand_ood_acc= test(net, random_ood_loader)
+        _, rand_ood_acc = test(net, random_ood_loader)
 
         ### going to load the wa
         # _, complex_feat_acc = test(net, complex_feat_loader)
-        
+
         _, rand_id_acc = test(net, random_id_loader)
         # random_id_loader.dataset.return_simple_label=True
         # _, simple_feat_acc = test(net, random_id_loader)
@@ -309,45 +256,22 @@ def linear_probe_vat(args, net, train_loader, test_loader, train_aug, train_tran
     )
 
     """Get OOD Loaders"""
-    if "paired" in args.dataset:
-        ood_dataset = pairedSTLMNIST(train=False, transform=None)
-        ood_loader = torch.utils.data.DataLoader(
-            ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        random_ood_dataset = pairedSTLMNIST(
-            train=False, transform=None, randomized=True
-        )
-        random_ood_loader = torch.utils.data.DataLoader(
-            random_ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-
-    elif "blended" in args.dataset:
-        ood_dataset = blendedSTLMNIST(train=False, transform=None)
-        ood_loader = torch.utils.data.DataLoader(
-            ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        random_ood_dataset = blendedSTLMNIST(
-            train=False, transform=None, randomized=True
-        )
-        random_ood_loader = torch.utils.data.DataLoader(
-            random_ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
+    ood_dataset = blendedSTLMNIST(train=False, transform=None,use_paired=True)
+    ood_loader = torch.utils.data.DataLoader(
+        ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    random_ood_dataset = blendedSTLMNIST(train=False, transform=None, randomized=True,use_paired=True)
+    random_ood_loader = torch.utils.data.DataLoader(
+        random_ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
     ood_features, ood_labels = extract_features(
         args,
         model=net,
@@ -480,6 +404,399 @@ def linear_probe_vat(args, net, train_loader, test_loader, train_aug, train_tran
     }
     return net, checkpoint
 
+#Code from: https://github.com/mpagli/Uncertainty-Driven-Perturbations/blob/59a915bc98da0532bce51b84dcfc59d54ee648ac/src/utils.py#L79
+def get_udp_perturbation(model, X, y, eps, alpha, attack_iters, rs=False, clamp_val=None, use_alpha_scheduler=False, sample_iters='none'):
+    # y is not used, just here to keep the interface
+    
+    delta = torch.zeros_like(X).to(X.device)
+        
+    if use_alpha_scheduler:
+        alpha_scheduler = lambda t: np.interp([t], [0, attack_iters // 2, attack_iters], [alpha, max(eps/2, alpha), alpha])[0]
+
+    if rs:
+        delta.uniform_(-eps, eps)
+
+    if sample_iters == 'uniform':
+        shape = [delta.shape[0]] + [1] * (len(delta.shape)-1)
+        sampled_iters = torch.randint(1,attack_iters+1,shape).expand_as(delta).to(X.device)
+
+    delta.requires_grad = True
+
+    for itr in range(attack_iters):
+
+        if clamp_val is not None:
+            X_ = torch.clamp(X + delta, clamp_val[0], clamp_val[1])
+        else:
+            X_ = X + delta
+
+        output = model(X_)
+        p = torch.softmax(output, dim=1)
+        entropy = - (p * p.log()).sum(dim=1)
+        entropy.mean().backward()
+        grad = delta.grad.detach().sign()
+        if sample_iters != 'none':
+            grad[sampled_iters <= itr] = 0.0
+        if use_alpha_scheduler:
+            delta.data = delta + alpha_scheduler(itr+1) * grad
+        else:
+            delta.data = delta + alpha * grad
+        if clamp_val is not None:
+            delta.data = torch.clamp(X + delta.data, clamp_val[0], clamp_val[1]) - X
+        delta.data = torch.clamp(delta.data, -eps, eps)
+        delta.grad.zero_()
+
+    return delta.detach()
+
+def linear_probe_udp(args, net, train_loader, test_loader, train_aug, train_transform):
+
+    net.eval()
+    """
+    Get in-distribution feature representations
+    """
+    print("Creating Tensor Datasets...")
+    train_features, train_labels = extract_features(
+        args,
+        model=net,
+        loader=train_loader,
+        train_aug=train_aug,
+        train_transform=train_transform,
+    )
+    test_features, test_labels = extract_features(
+        args, model=net, loader=test_loader, train_aug="test", train_transform=None
+    )
+
+    """Get OOD Loaders"""
+    ood_dataset = blendedSTLMNIST(train=False, transform=None,use_paired=True,randomized=False)
+    ood_loader = torch.utils.data.DataLoader(
+        ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    ood_features, ood_labels = extract_features(
+        args,
+        model=net,
+        loader=ood_loader,
+        train_aug="test",
+        train_transform=train_transform,
+    ) 
+    
+    random_ood_dataset = blendedSTLMNIST(train=False, transform=None, randomized=True,use_paired=True)
+    random_ood_loader = torch.utils.data.DataLoader(
+        random_ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    rand_ood_features, rand_ood_labels = extract_features(
+        args,
+        model=net,
+        loader=random_ood_loader,
+        train_aug="test",
+        train_transform=None,
+    )
+
+    """
+    Create Representation Data Loaders
+    """
+    print(train_features.shape)
+    print(train_features.mean())
+    
+    rep_train_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(train_features), torch.Tensor(train_labels).long()
+    )
+    rep_train_dataloader = torch.utils.data.DataLoader(
+        rep_train_dataset, batch_size=args.batch_size, shuffle=True
+    )
+    
+    rep_test_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(test_features), torch.Tensor(test_labels).long()
+    )
+    rep_test_dataloader = torch.utils.data.DataLoader(
+        rep_test_dataset, batch_size=args.batch_size, shuffle=True
+    )
+
+    ood_rep_test_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(ood_features), torch.Tensor(ood_labels).long()
+    )
+    ood_rep_test_dataloader = torch.utils.data.DataLoader(
+        ood_rep_test_dataset, batch_size=args.batch_size, shuffle=True
+    )
+
+    rand_ood_rep_test_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(rand_ood_features), torch.Tensor(rand_ood_labels).long()
+    )
+    rand_ood_rep_test_dataloader = torch.utils.data.DataLoader(
+        rand_ood_rep_test_dataset, batch_size=args.batch_size, shuffle=True
+    )
+
+    """
+    Create a linear probe layer.
+    We will attach it separately back.
+    """
+
+    fc = torch.nn.Linear(train_features.shape[1], NUM_CLASSES_DICT[args.dataset]).to(
+        DEVICE
+    )
+    
+    optimizer = torch.optim.SGD(
+        fc.parameters(),
+        args.learning_rate,
+        momentum=args.momentum,
+        weight_decay=args.decay,
+        nesterov=True,
+    )
+
+    scheduler = LR_Scheduler(
+        optimizer,
+        warmup_epochs=0,
+        warmup_lr=0 * args.batch_size / 256,
+        num_epochs=args.epochs,
+        base_lr=args.learning_rate * args.batch_size / 256,
+        final_lr=1e-5 * args.batch_size / 256,
+        iter_per_epoch=len(train_loader),
+        constant_predictor_lr=False,
+    )
+    criterion = torch.nn.CrossEntropyLoss()
+    ood_acc, rand_ood_acc = -1, -1 
+    for epochs in range(args.epochs):
+        loss_avg = 0
+        loss_adv_avg = 0
+        loss_clean_avg = 0
+        for batch_idx, (data, target) in enumerate(rep_train_dataloader):
+            data, target = data.to(DEVICE), target.to(DEVICE)
+            delta = get_udp_perturbation(model=fc, 
+                X=data, 
+                y=target, 
+                eps=args.eps, 
+                alpha=args.alpha, 
+                attack_iters=20, 
+                rs=False, 
+                clamp_val=None, 
+                use_alpha_scheduler=False, 
+                sample_iters='none')
+            optimizer.zero_grad()
+            clean_output = fc(data)
+            adv_output = fc(data+delta)
+            loss_clean = criterion(clean_output, target)
+            loss_adv =  args.loss_weight * criterion(adv_output,target)
+            #print(loss_clean, loss_adv) 
+            loss = loss_clean + loss_adv 
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            loss_avg += loss
+            loss_adv_avg += loss_adv
+            loss_clean_avg += loss_clean 
+        _, train_acc = test(fc, rep_train_dataloader)
+        _, val_acc = test(fc, rep_test_dataloader)
+        _, ood_acc = test(fc, ood_rep_test_dataloader)
+        _, rand_ood_acc = test(fc, rand_ood_rep_test_dataloader)
+
+        loss_avg /= len(rep_train_dataloader)
+        loss_clean_avg /= len(rep_train_dataloader)
+        loss_adv_avg /= len(rep_train_dataloader)
+        print(
+            "UDP, Epoch: {0} -- Loss: {1:.3f} -- Clean: {6:.3f} -- UDP: {7:.3f} -- Train Error: {2:.4f} -- Test Error: {3:.4f} -- OOD Error: {4:.4f} -- Rand OOD Error: {5:.4f} -- ".format(
+                epochs,
+                loss_avg,
+                100 - 100.0 * train_acc,
+                100 - 100.0 * val_acc,
+                100 - 100.0 * ood_acc,
+                100 - 100.0 * rand_ood_acc,
+                loss_clean_avg,
+                loss_adv_avg
+            )
+        )
+    # Set the classifier weights
+    net.module.fc = fc
+
+    """
+    Compute acc. using forward passes.
+    """
+    spur_ood_acc,rand_ood_acc = -1, -1
+    _, spur_test_acc = test(net=net, test_loader=test_loader)
+    # _, spur_ood_acc = test(net=net, test_loader=ood_loader)
+    # _, rand_ood_acc = test(net=net, test_loader=random_ood_loader)
+
+    print("Completed UDP Training: S-test: {0:.3f} -- S-OOD: {1:.3f} -- R-OOD: {2:.3f}".format(spur_test_acc,spur_ood_acc,rand_ood_acc))
+    checkpoint = {
+        "lp_epoch": args.epochs,
+        "dataset": args.dataset,
+        "model": args.arch,
+        "state_dict": net.state_dict(),
+        "best_acc": spur_test_acc,
+        "protocol": "vatlp",
+    }
+    return net, checkpoint
+
+def linear_probe_vanilla(args, net, train_loader, test_loader, train_aug, train_transform):
+
+    net.eval()
+    """
+    Get in-distribution feature representations
+    """
+    print("Creating Tensor Datasets...")
+    train_features, train_labels = extract_features(
+        args,
+        model=net,
+        loader=train_loader,
+        train_aug=train_aug,
+        train_transform=train_transform,
+    )
+    test_features, test_labels = extract_features(
+        args, model=net, loader=test_loader, train_aug="test", train_transform=None
+    )
+
+    """Get OOD Loaders"""
+    ood_dataset = blendedSTLMNIST(train=False, transform=None,use_paired=True,randomized=False)
+    ood_loader = torch.utils.data.DataLoader(
+        ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    ood_features, ood_labels = extract_features(
+        args,
+        model=net,
+        loader=ood_loader,
+        train_aug="test",
+        train_transform=train_transform,
+    ) 
+    
+    random_ood_dataset = blendedSTLMNIST(train=False, transform=None, randomized=True,use_paired=True)
+    random_ood_loader = torch.utils.data.DataLoader(
+        random_ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    rand_ood_features, rand_ood_labels = extract_features(
+        args,
+        model=net,
+        loader=random_ood_loader,
+        train_aug="test",
+        train_transform=None,
+    )
+
+    """
+    Create Representation Data Loaders
+    """
+    print(train_features.shape)
+    print(train_features.mean())
+    
+    rep_train_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(train_features), torch.Tensor(train_labels).long()
+    )
+    rep_train_dataloader = torch.utils.data.DataLoader(
+        rep_train_dataset, batch_size=args.batch_size, shuffle=True
+    )
+    
+    rep_test_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(test_features), torch.Tensor(test_labels).long()
+    )
+    rep_test_dataloader = torch.utils.data.DataLoader(
+        rep_test_dataset, batch_size=args.batch_size, shuffle=True
+    )
+
+    ood_rep_test_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(ood_features), torch.Tensor(ood_labels).long()
+    )
+    ood_rep_test_dataloader = torch.utils.data.DataLoader(
+        ood_rep_test_dataset, batch_size=args.batch_size, shuffle=True
+    )
+
+    rand_ood_rep_test_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(rand_ood_features), torch.Tensor(rand_ood_labels).long()
+    )
+    rand_ood_rep_test_dataloader = torch.utils.data.DataLoader(
+        rand_ood_rep_test_dataset, batch_size=args.batch_size, shuffle=True
+    )
+
+    """
+    Create a linear probe layer.
+    We will attach it separately back.
+    """
+
+    fc = torch.nn.Linear(train_features.shape[1], NUM_CLASSES_DICT[args.dataset]).to(
+        DEVICE
+    )
+    
+    optimizer = torch.optim.SGD(
+        fc.parameters(),
+        args.learning_rate,
+        momentum=args.momentum,
+        weight_decay=args.decay,
+        nesterov=True,
+    )
+
+    scheduler = LR_Scheduler(
+        optimizer,
+        warmup_epochs=0,
+        warmup_lr=0 * args.batch_size / 256,
+        num_epochs=args.epochs,
+        base_lr=args.learning_rate * args.batch_size / 256,
+        final_lr=1e-5 * args.batch_size / 256,
+        iter_per_epoch=len(train_loader),
+        constant_predictor_lr=False,
+    )
+    criterion = torch.nn.CrossEntropyLoss()
+    ood_acc, rand_ood_acc = -1, -1 
+    for epochs in range(args.epochs):
+        loss_avg = 0
+        loss_adv_avg = 0
+        loss_clean_avg = 0
+        for batch_idx, (data, target) in enumerate(rep_train_dataloader):
+            data, target = data.to(DEVICE), target.to(DEVICE)
+            optimizer.zero_grad()
+            clean_output = fc(data)
+            loss = criterion(clean_output, target)
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            loss_avg += loss
+        _, train_acc = test(fc, rep_train_dataloader)
+        _, val_acc = test(fc, rep_test_dataloader)
+        _, ood_acc = test(fc, ood_rep_test_dataloader)
+        _, rand_ood_acc = test(fc, rand_ood_rep_test_dataloader)
+
+        loss_avg /= len(rep_train_dataloader)
+        print(
+            "Vanilla, Epoch: {0} -- Loss: {1:.3f} -- Train Error: {2:.4f} -- Test Error: {3:.4f} -- OOD Error: {4:.4f} -- Rand OOD Error: {5:.4f} -- ".format(
+                epochs,
+                loss_avg,
+                100 - 100.0 * train_acc,
+                100 - 100.0 * val_acc,
+                100 - 100.0 * ood_acc,
+                100 - 100.0 * rand_ood_acc,
+            )
+        )
+    # Set the classifier weights
+    net.module.fc = fc
+
+    """
+    Compute acc. using forward passes.
+    """
+    spur_ood_acc,rand_ood_acc = -1, -1
+    _, spur_test_acc = test(net=net, test_loader=test_loader)
+    # _, spur_ood_acc = test(net=net, test_loader=ood_loader)
+    # _, rand_ood_acc = test(net=net, test_loader=random_ood_loader)
+
+    print("Completed UDP Training: S-test: {0:.3f} -- S-OOD: {1:.3f} -- R-OOD: {2:.3f}".format(spur_test_acc,spur_ood_acc,rand_ood_acc))
+    checkpoint = {
+        "lp_epoch": args.epochs,
+        "dataset": args.dataset,
+        "model": args.arch,
+        "state_dict": net.state_dict(),
+        "best_acc": spur_test_acc,
+        "protocol": "vatlp",
+    }
+    return net, checkpoint
+
 
 def main():
     args = arg_parser()
@@ -568,7 +885,7 @@ def main():
     """
     lp_train_acc, lp_test_acc, lp_train_loss, lp_test_loss = -1, -1, -1, -1
     ft_train_acc, ft_test_acc, ft_train_loss, ft_test_loss = -1, -1, -1, -1
-    if args.protocol in ["lp", "lp+ft", "vatlp+ft", "vatlp"]:
+    if args.protocol in ["lp", "lp+ft", "vatlp+ft", "vatlp","udplp", "udplp+ft"]:
 
         log_path = os.path.join(
             "{}/logs".format(PREFIX), "lp+" + save_name + "_training_log.csv"
@@ -577,23 +894,16 @@ def main():
         """
         Select Augmentation Scheme.
         """
-        # train_transform = get_transform(dataset=args.dataset, SELECTED_AUG=args.train_aug,use_clip_mean=use_clip_mean)
-        # test_transform = get_transform(dataset=args.dataset, SELECTED_AUG=args.test_aug,use_clip_mean=use_clip_mean)
-        #
-        if "paired" in args.dataset:
-            train_dataset = pairedCIFARMNIST(train=True, randomized=False)
-            test_dataset = pairedCIFARMNIST(train=False, randomized=False)
-        elif "blended" in args.dataset:
-            train_dataset = blendedCIFARMNIST(
-                train=True,
-                randomized=False,
-                correlation_strength=args.correlation_strength,
-            )
-            test_dataset = blendedCIFARMNIST(
-                train=False,
-                randomized=False,
-                correlation_strength=args.correlation_strength,
-            )
+        train_dataset = blendedCIFARMNIST(
+            train=True,
+            randomized=False,
+            correlation_strength=args.correlation_strength,
+        )
+        test_dataset = blendedCIFARMNIST(
+            train=False,
+            randomized=False,
+            correlation_strength=args.correlation_strength,
+        )
         train_loader = torch.utils.data.DataLoader(
             train_dataset,
             batch_size=args.batch_size,
@@ -625,19 +935,22 @@ def main():
         if args.resume_lp_ckpt.lower() != "none" and args.protocol in [
             "lp+ft",
             "vatlp+ft",
+            "udplp+ft"
         ]:
-            print("****************************")
+            print()
+            print("*=!" * 20)
             print("Loading Saved LP Ckpt")
             ckpt = torch.load(args.resume_lp_ckpt)
             incomp, unexpected = net.load_state_dict(ckpt["state_dict"])
             print("Incompatible Keys: ", incomp)
             print("Unexpected Keys: ", unexpected)
 
-            lp_train_loss, lp_train_acc = test(net, train_loader)
-            lp_test_loss, lp_test_acc = test(net, test_loader)
+            _, lp_train_acc = test(net, train_loader)
+            _, lp_test_acc = test(net, test_loader)
             print("LP Train Acc: ", lp_train_acc)
             print("LP Test Acc: ", lp_test_acc)
-            print("****************************")
+            print("*=!" * 20)
+            print()
 
         else:
             print("****************************")
@@ -673,6 +986,36 @@ def main():
 
                 lp_train_loss, lp_train_acc = test(net, train_loader)
                 lp_test_loss, lp_test_acc = test(net, test_loader)
+            
+            elif "udp" in args.protocol and args.resume_lp_ckpt.lower() == "none":
+                print("=%" * 20)
+                print("UDP LP TRAINING")
+                print("=%" * 20)
+                net = freeze_layers_for_lp(net)
+
+                """
+                Perform Linear Probe Training 
+                """
+                net, ckpt = linear_probe_udp(
+                    args,
+                    net,
+                    train_loader,
+                    test_loader,
+                    args.train_aug,
+                    train_transform=None,
+                )
+
+                """
+                Save LP Final Ckpt.
+                """
+                s = "udplp+{save_name}_final_checkpoint_{epoch:03d}_pth.tar".format(
+                    save_name=save_name, epoch=args.epochs
+                )
+                save_path = os.path.join(args.save, s)
+                torch.save(ckpt, save_path)
+
+                _, lp_train_acc = test(net, train_loader)
+                _, lp_test_acc = test(net, test_loader)
 
             elif "vat" not in args.protocol and args.resume_lp_ckpt.lower() == "none":
                 print("=*" * 60)
@@ -742,7 +1085,7 @@ def main():
     """
     Performing Fine-tuing Training!
     """
-    if args.protocol in ["lp+ft", "ft", "lpfrz+ft", "vatlp+ft"]:
+    if args.protocol in ["lp+ft", "ft", "lpfrz+ft", "vatlp+ft","udplp+ft"]:
         if args.protocol == "lpfrz+ft":
             print("=> Freezing Classifier, Unfreezing All Other Layers!")
             net = unfreeze_layers_for_lpfrz_ft(net)
@@ -756,7 +1099,7 @@ def main():
         Select FT Augmentation Scheme.
         """
         if (
-            args.protocol in ["lp+ft", "vatlp+ft"]
+            args.protocol in ["lp+ft", "vatlp+ft","udplp+ft"]
             and args.resume_lp_ckpt.lower() == "none"
         ):
             del (
@@ -767,34 +1110,19 @@ def main():
                 train_transform,
                 test_transform,
             )
-        # ft_train_transform = get_transform(dataset=args.dataset,
-        #     SELECTED_AUG=args.ft_train_aug,
-        #     use_clip_mean=use_clip_mean)
+        train_dataset = blendedCIFARMNIST(
+            train=True,
+            randomized=False,
+            correlation_strength=args.correlation_strength,
+            use_paired=True,
+        )
+        test_dataset = blendedCIFARMNIST(
+            train=False,
+            randomized=False,
+            correlation_strength=args.correlation_strength,
+            use_paired=True,
+        )
 
-        # ft_test_transform = get_transform(dataset=args.dataset,
-        #     SELECTED_AUG=args.ft_test_aug,
-        #     use_clip_mean=use_clip_mean)
-
-        # ft_train_loader, ft_test_loader = get_dataloaders(args=args,
-        #     train_aug=args.ft_train_aug,
-        #     test_aug=args.ft_test_aug,
-        #     train_transform=ft_train_transform,
-        #     test_transform=ft_test_transform,
-        #     use_clip_mean=use_clip_mean)
-        if "paired" in args.dataset:
-            train_dataset = pairedCIFARMNIST(train=True)
-            test_dataset = pairedCIFARMNIST(train=False)
-        if "blended" in args.dataset:
-            train_dataset = blendedCIFARMNIST(
-                train=True,
-                randomized=False,
-                correlation_strength=args.correlation_strength,
-            )
-            test_dataset = blendedCIFARMNIST(
-                train=False,
-                randomized=False,
-                correlation_strength=args.correlation_strength,
-            )
         ft_train_loader = torch.utils.data.DataLoader(
             train_dataset,
             batch_size=args.batch_size,
@@ -809,7 +1137,8 @@ def main():
             num_workers=args.num_workers,
             pin_memory=True,
         )
-        test_loss, test_acc = test(net, ft_test_loader)
+        _, test_acc = test(net, ft_test_loader)
+        print("Beginning FT!")
         print("=> Epoch 0 Test Acc: ", test_acc)
 
         optimizer = torch.optim.SGD(
@@ -856,56 +1185,35 @@ def main():
         )
         save_path = os.path.join(args.save, s)
         torch.save(ckpt, save_path)
-        ft_train_loss, ft_train_acc = test(net, ft_train_loader)
-        ft_test_loss, ft_test_acc = test(net, ft_test_loader)
+        _, ft_train_acc = test(net, ft_train_loader)
+        _, ft_test_acc = test(net, ft_test_loader)
     """
     Perform ID + OOD Evaluation!
     """
-    # ood_loader = get_oodloader(args=args,dataset=args.eval_dataset,use_clip_mean=use_clip_mean)
-    if "paired" in args.dataset:
-        ood_dataset = pairedSTLMNIST(train=False, transform=None)
-        ood_loader = torch.utils.data.DataLoader(
-            ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        random_ood_dataset = pairedSTLMNIST(
-            train=False, transform=None, randomized=True
-        )
-        random_ood_loader = torch.utils.data.DataLoader(
-            random_ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-    if "blended" in args.dataset:
-        ood_dataset = blendedSTLMNIST(train=False, transform=None,use_paired=True)
-        ood_loader = torch.utils.data.DataLoader(
-            ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
-        random_ood_dataset = blendedSTLMNIST(
-            train=False, transform=None, randomized=True,use_paired=True
-        )
-        random_ood_loader = torch.utils.data.DataLoader(
-            random_ood_dataset,
-            batch_size=args.eval_batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-        )
+    ood_dataset = blendedSTLMNIST(train=False, transform=None, use_paired=True)
+    ood_loader = torch.utils.data.DataLoader(
+        ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    random_ood_dataset = blendedSTLMNIST(
+        train=False, transform=None, randomized=True, use_paired=True
+    )
+    random_ood_loader = torch.utils.data.DataLoader(
+        random_ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
 
     if ood_loader:
-        ood_loss, ood_acc = test(net, ood_loader)
-        ood_loss, rand_ood_acc = test(net, random_ood_loader)
+        _, ood_acc = test(net, ood_loader)
+        _, rand_ood_acc = test(net, random_ood_loader)
     else:
-        ood_loss, ood_acc = -1, -1
+        ood_acc = -1
 
     with open(
         "/usr/workspace/trivedi1/simplicity_experiments_aaai/logs/consolidated.csv", "a"

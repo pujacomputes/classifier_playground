@@ -97,11 +97,11 @@ class blendedCIFARMNIST(torch.utils.data.Dataset):
             if mlabel != label:
                 count_disagrees += 1
 
-        print("="*30)
-        print("Randomized?: ",self.randomized) 
-        print("Reassignment Amount -- {0:.3f} -- Per Class -- {1}".format(reassignment_amount,reassignment_amount_per_class))
-        print("Percentage Disagreements:{0:.3f}".format(count_disagrees/len(mapper_dict.items())))
-        print("="*30)
+        # print("="*30)
+        # print("Randomized?: ",self.randomized) 
+        # print("Reassignment Amount -- {0:.3f} -- Per Class -- {1}".format(reassignment_amount,reassignment_amount_per_class))
+        # print("Percentage Disagreements:{0:.3f}".format(count_disagrees/len(mapper_dict.items())))
+        # print("="*30)
         return mapper_dict 
     
     

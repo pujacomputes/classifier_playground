@@ -320,6 +320,135 @@ def linear_probe_fgsm(args, net, train_loader,test_loader, train_aug, train_tran
     }
     return net, checkpoint
 
+def linear_probe_udp(args, net, train_loader, test_loader, train_aug, train_transform):
+
+    net.eval()
+    print("Creating Tensor Datasets...")
+    train_features, train_labels = extract_features(
+        args,
+        model=net,
+        loader=train_loader,
+        train_aug=train_aug,
+        train_transform=train_transform,
+    )
+    test_features, test_labels = extract_features(
+        args, model=net, loader=test_loader, train_aug="test", train_transform=None
+    )
+
+    print(train_features.shape)
+    print(train_features.mean())
+    
+    rep_train_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(train_features), torch.Tensor(train_labels).long()
+    )
+    rep_train_dataloader = torch.utils.data.DataLoader(
+        rep_train_dataset, batch_size=args.batch_size, shuffle=True
+    )
+    
+    rep_test_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(test_features), torch.Tensor(test_labels).long()
+    )
+    rep_test_dataloader = torch.utils.data.DataLoader(
+        rep_test_dataset, batch_size=args.batch_size, shuffle=True
+    )
+
+    """
+    Create a linear probe layer.
+    We will attach it separately back.
+    """
+
+    fc = torch.nn.Linear(train_features.shape[1], NUM_CLASSES_DICT[args.dataset]).to(
+        DEVICE
+    )
+    
+    optimizer = torch.optim.SGD(
+        fc.parameters(),
+        args.learning_rate,
+        momentum=args.momentum,
+        weight_decay=args.decay,
+        nesterov=True,
+    )
+
+    scheduler = LR_Scheduler(
+        optimizer,
+        warmup_epochs=0,
+        warmup_lr=0 * args.batch_size / 256,
+        num_epochs=args.epochs,
+        base_lr=args.learning_rate * args.batch_size / 256,
+        final_lr=1e-5 * args.batch_size / 256,
+        iter_per_epoch=len(train_loader),
+        constant_predictor_lr=False,
+    )
+    criterion = torch.nn.CrossEntropyLoss()
+    ood_acc, rand_ood_acc = -1, -1 
+    for epochs in range(args.epochs):
+        loss_avg = 0
+        loss_adv_avg = 0
+        loss_clean_avg = 0
+        for batch_idx, (data, target) in enumerate(rep_train_dataloader):
+            data, target = data.to(DEVICE), target.to(DEVICE)
+            delta = get_udp_perturbation(model=fc, 
+                X=data, 
+                y=target, 
+                eps=args.eps, 
+                alpha=args.alpha, 
+                attack_iters=20, 
+                rs=False, 
+                clamp_val=None, 
+                use_alpha_scheduler=False, 
+                sample_iters='none')
+            optimizer.zero_grad()
+            clean_output = fc(data)
+            adv_output = fc(data+delta)
+            loss_clean = criterion(clean_output, target)
+            loss_adv =  args.loss_weight * criterion(adv_output,target)
+            #print(loss_clean, loss_adv) 
+            loss = loss_clean + loss_adv 
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            loss_avg += loss
+            loss_adv_avg += loss_adv
+            loss_clean_avg += loss_clean 
+        _, train_acc = test(fc, rep_train_dataloader)
+        _, val_acc = test(fc, rep_test_dataloader)
+
+        loss_avg /= len(rep_train_dataloader)
+        loss_clean_avg /= len(rep_train_dataloader)
+        loss_adv_avg /= len(rep_train_dataloader)
+        print(
+            "UDP, Epoch: {0} -- Loss: {1:.3f} -- Clean: {2:.3f} -- UDP: {3:.3f} -- Train Error: {4:.4f} -- Test Error: {5:.4f} -- ".format(
+                epochs,
+                loss_avg,                
+                loss_clean_avg,
+                loss_adv_avg,
+                100 - 100.0 * train_acc,
+                100 - 100.0 * val_acc,
+            )
+        )
+    # Set the classifier weights
+    net.module.fc = fc
+
+    """
+    Compute acc. using forward passes.
+    """
+    spur_ood_acc,rand_ood_acc = -1, -1
+    _, spur_test_acc = test(net=net, test_loader=test_loader)
+    # _, spur_ood_acc = test(net=net, test_loader=ood_loader)
+    # _, rand_ood_acc = test(net=net, test_loader=random_ood_loader)
+
+    print("Completed UDP Training: S-test: {0:.3f} -- S-OOD: {1:.3f} -- R-OOD: {2:.3f}".format(spur_test_acc,spur_ood_acc,rand_ood_acc))
+    checkpoint = {
+        "lp_epoch": args.epochs,
+        "dataset": args.dataset,
+        "model": args.arch,
+        "state_dict": net.state_dict(),
+        "best_acc": spur_test_acc,
+        "protocol": "vatlp",
+    }
+    return net, checkpoint
+
+
 def main():
     args = arg_parser()
     for arg in sorted(vars(args)):

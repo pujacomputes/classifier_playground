@@ -25,6 +25,7 @@ from functools import partial
 from warnings import warn
 from typing import List, Dict
 import matplotlib.pyplot as plt
+from blended_cifar_mnist import blendedCIFARMNIST, blendedSTLMNIST
 
 class CKA:
     def __init__(self,
@@ -300,7 +301,10 @@ def arg_parser():
         '--save_name',
         type=str,
     )
-    
+    parser.add_argument(
+        "--correlation_strength",
+        type=float,
+    ) 
     args = parser.parse_args()
     return args  
 
@@ -514,8 +518,6 @@ def main():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     random.seed(args.seed)
-    n1_d1_test_acc,n1_d1_train_acc,n1_d2_train_acc, n1_d2_test_acc = -1,-1,-1,-1
-    n2_d1_test_acc,n2_d1_train_acc,n2_d2_train_acc, n2_d2_test_acc = -1,-1,-1,-1
     print("args.dataset_1",args.dataset_1) 
     """
     Create Model 1
@@ -533,6 +535,7 @@ def main():
         print("Incompatible Keys: ",incomp)
         print("Unexpected Keys: ",unexpected) 
         m1_name = args.model_1_ckpt 
+   
     elif "resnet50" in args.model_1_ckpt and "scratch" not in args.model_1_ckpt:
         net_1 = timm.create_model(args.arch,pretrained=False)
         net_1.reset_classifier(NUM_CLASSES_DICT[args.dataset_1])
@@ -603,14 +606,17 @@ def main():
     """
     Create Dataloader 1
     """
-    d1_train_transform = get_transform(dataset=args.dataset_1, SELECTED_AUG=args.dataset_1_trainaug,use_clip_mean=True) 
-    d1_test_transform = get_transform(dataset=args.dataset_1, SELECTED_AUG=args.dataset_1_testaug,use_clip_mean=True) 
-    d1_train_loader, d1_test_loader = get_dataloaders(dataset=args.dataset_1,
-        args=args, 
-        train_aug=args.dataset_1_trainaug,
-        test_aug=args.dataset_1_testaug, 
-        train_transform=d1_train_transform,
-        test_transform=d1_test_transform) 
+    test_dataset = blendedCIFARMNIST(
+            train=False,
+            randomized=False,
+            correlation_strength=args.correlation_strength)
+    d1_test_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
     """
     Create (optional) Dataloader 2
     """
@@ -627,7 +633,6 @@ def main():
             
     else:
         print("**** ONLY 1 Dataset was provided. Doubling Loader! ")
-        d2_train_loader = d1_train_loader
         d2_test_loader = d1_test_loader
 
     """
@@ -686,35 +691,14 @@ def main():
     if args.dataset_2.lower() == "none":
         cka.compare(dataloader1=d1_test_loader) 
         test_results = cka.export()  
-        if use_train:
-            cka.compare(dataloader1=d1_train_loader) 
-            train_results = cka.export() 
     else:
-        
         cka.compare(dataloader1=d1_test_loader,dataloader2=d2_test_loader) # secondary dataloader is optional
         test_results = cka.export() 
-        if use_train: 
-            cka.compare(dataloader1=d1_train_loader,dataloader2=d2_train_loader) 
-            train_results = cka.export() 
-    print("********** Test ************") 
-    print(test_results)
-    print("*****************************")
-    print()
-    if use_train:
-        print("********** Train ************") 
-        print(train_results)
-        print("*****************************") 
 
     """"
     Save the diagonal values to log file.
     """
-    if "domain" in args.dataset_1:
-        safety_logs_prefix = "/usr/workspace/trivedi1/clip_experiments_aaai/clip_safety_logs"
-    elif "living17" in args.dataset_1:
-        safety_logs_prefix = "/usr/workspace/trivedi1/living17_experiments_aaai/safety_logs"
-    else:
-        safety_logs_prefix = "/p/lustre1/trivedi1/compnets/classifier_playground/safety_logs"
-
+    safety_logs_prefix = "/usr/workspace/trivedi1/simplicity_experiments_aaai/safety_logs"
     print("=> Save Name:",args.save_name)
     test_results_diag = np.diag(test_results['CKA'].numpy())
     test_results_diag = np.round(test_results_diag,4)
@@ -723,8 +707,8 @@ def main():
     test_results_diag = test_results_diag.tolist()
     test_results_diag = [np.round(i,4) for i in test_results_diag]
     print("=> CKAs: ",test_results_diag)
-    with open("{}/cka.csv".format(safety_logs_prefix),"a") as f:
-        write_str = "{save_name},{dataset},{avg_cka:.4f},{cka}\n".format(save_name=args.save_name,dataset=args.dataset_1,avg_cka=avg_cka, cka=test_results_diag)
+    with open("{}/cka_simplicity.csv".format(safety_logs_prefix),"a") as f:
+        write_str = "{save_name},{dataset}-{correlation},{avg_cka:.4f},{cka}\n".format(save_name=args.save_name,dataset=args.dataset_1,correlation=args.correlation_strength,avg_cka=avg_cka, cka=test_results_diag)
         f.write(write_str)
 if __name__ == '__main__':
     main()
