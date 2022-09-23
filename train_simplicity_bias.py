@@ -833,6 +833,8 @@ def main():
     use_clip_mean = "clip" in args.arch
     if "vat" in args.protocol:
         lp_aug_name = "vat-{}".format(args.alpha)
+    elif "udp" in args.protocol:
+        lp_aug_name = "udp-{}-{}-{}".format(args.eps, args.alpha,args.loss_weight)
     else:
         lp_aug_name = args.train_aug
     dataset_name = "{}-{}".format(args.dataset, args.correlation_strength)
@@ -1023,52 +1025,15 @@ def main():
                 print("=*" * 60)
 
                 net = freeze_layers_for_lp(net)
-                optimizer = torch.optim.SGD(
-                    net.module.fc.parameters(),
-                    args.learning_rate,
-                    momentum=args.momentum,
-                    weight_decay=args.decay,
-                    nesterov=True,
-                )
 
-                start_epoch = 0
-                # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                #     optimizer,
-                #     T_max = args.epochs,
-                #     eta_min = 1e-5,
-                # )
-
-                scheduler = LR_Scheduler(
-                    optimizer,
-                    warmup_epochs=0,
-                    warmup_lr=0 * args.batch_size / 256,
-                    num_epochs=args.epochs,
-                    base_lr=args.learning_rate * args.batch_size / 256,
-                    final_lr=1e-5 * args.batch_size / 256,
-                    iter_per_epoch=len(train_loader),
-                    constant_predictor_lr=False,
-                )
-                with open(log_path, "w") as f:
-                    f.write("epoch,time(s),train_loss,test_loss,test_error(%)\n")
-
-                """
-                Perform Linear Probe Training 
-                """
-                net, ckpt = train_loop(
-                    args=args,
-                    protocol="lp",
-                    save_name="lp+" + save_name,
-                    log_path=log_path,
-                    net=net,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    start_epoch=start_epoch,
-                    end_epoch=args.epochs,
-                    train_loader=train_loader,
-                    test_loader=test_loader,
-                    train_aug=args.train_aug,
+                net, ckpt = linear_probe_vanilla(
+                    args,
+                    net,
+                    train_loader,
+                    test_loader,
+                    args.train_aug,
                     train_transform=None,
-                )
+                ) 
 
                 """
                 Save LP Final Ckpt.
@@ -1079,8 +1044,8 @@ def main():
                 save_path = os.path.join(args.save, s)
                 torch.save(ckpt, save_path)
 
-                lp_train_loss, lp_train_acc = test(net, train_loader)
-                lp_test_loss, lp_test_acc = test(net, test_loader)
+                _, lp_train_acc = test(net, train_loader)
+                _, lp_test_acc = test(net, test_loader)
 
     """
     Performing Fine-tuing Training!

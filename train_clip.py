@@ -120,7 +120,7 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
         # else:
         # _,ood_acc = test(net,ood_loader)
         ood_acc = -1
-        # _,ood_acc = test(net,ood_loader)
+        _,ood_acc = test(net,ood_loader)
         print(
             'Epoch {0:3d} | Time {1:5d} | Train Loss {2:.4f} | Test Loss {3:.3f} | L2 Loss {4:.3f} |'
             ' Test Error {5:.2f} | OOD Error {6:.2f} | EarlyStop {7}'
@@ -488,7 +488,8 @@ def main():
         lp_aug_name = "vat-{}".format(args.alpha)
     elif "fgsm" in args.protocol:
         lp_aug_name = "fgsm-{}".format(args.eps)
-
+    elif "udp" in args.protocol:
+        lp_aug_name = "udp-{}-{}-{}".format(args.eps, args.alpha,args.loss_weight)
     else:
         lp_aug_name = args.train_aug
     save_name =  args.dataset \
@@ -525,7 +526,7 @@ def main():
     """
     lp_train_acc, lp_test_acc, lp_train_loss, lp_test_loss = -1,-1,-1,-1
     ft_train_acc, ft_test_acc, ft_train_loss, ft_test_loss = -1,-1,-1,-1
-    if args.protocol in ['lp','lp+ft','vatlp+ft','vatlp','fgsmlp','fgsmlp+ft']:
+    if args.protocol in ['lp','lp+ft','vatlp+ft','vatlp','fgsmlp','fgsmlp+ft','udplp','udplp+ft']:
 
         log_path = os.path.join("{}/logs".format(PREFIX),
                             "lp+" + save_name + '_training_log.csv')
@@ -553,7 +554,7 @@ def main():
         Passing only the fc layer to the optimizer. 
         This prevents lower layers from being effected by weight decay.
         """
-        if args.resume_lp_ckpt.lower() != "none" and args.protocol in ['lp+ft','vatlp+ft','fgsm+ft']:
+        if args.resume_lp_ckpt.lower() != "none" and args.protocol in ['lp+ft','vatlp+ft','fgsm+ft','udplp+ft']:
             print("****************************")
             print("Loading Saved LP Ckpt")
             ckpt = torch.load(args.resume_lp_ckpt)
@@ -612,8 +613,28 @@ def main():
 
                 lp_train_loss, lp_train_acc = test(net, train_loader)
                 lp_test_loss, lp_test_acc = test(net, test_loader)
+            elif "udp" in args.protocol and args.resume_lp_ckpt.lower() == "none" :
+                print("=@"*20)
+                print("UDP LP TRAINING")
+                print("=@"*20)
+                net = freeze_layers_for_lp(net)
 
-            elif "vat" not in args.protocol and "fgsm" not in args.protocol and args.resume_lp_ckpt.lower() == "none" :
+                """
+                Perform Linear Probe Training 
+                """
+                net, ckpt = linear_probe_udp(args, net, train_loader, test_loader, args.train_aug, train_transform)
+
+                """
+                Save LP Final Ckpt.
+                """
+                s = "udplp+{save_name}_final_checkpoint_{epoch:03d}_pth.tar".format(save_name=save_name,epoch=args.epochs)
+                save_path = os.path.join(args.save, s)
+                torch.save(ckpt, save_path)
+
+                lp_train_loss, lp_train_acc = test(net, train_loader)
+                lp_test_loss, lp_test_acc = test(net, test_loader)
+                #elif "vat" not in args.protocol and "fgsm" not in args.protocol and args.resume_lp_ckpt.lower() == "none" :
+            elif args.protocol in ['lp','lpft'] and args.resume_lp_ckpt.lower() == "none" :
                 print("=*"*60)
                 print("STANDARD LP TRAINING")
                 print("=*"*60)
@@ -627,11 +648,6 @@ def main():
                     nesterov=True)
 
                 start_epoch = 0
-                # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                #     optimizer,
-                #     T_max = args.epochs,
-                #     eta_min = 1e-5,
-                # )
             
                 scheduler = LR_Scheduler(
                     optimizer,
@@ -676,7 +692,7 @@ def main():
     """
     Performing Fine-tuing Training!
     """
-    if args.protocol in ['lp+ft','ft','lpfrz+ft','vatlp+ft','fgsmlp+ft']:
+    if args.protocol in ['lp+ft','ft','lpfrz+ft','vatlp+ft','fgsmlp+ft','udplp+ft']:
         if args.protocol == 'lpfrz+ft':
             print("=> Freezing Classifier, Unfreezing All Other Layers!")
             net = unfreeze_layers_for_lpfrz_ft(net)
@@ -688,7 +704,7 @@ def main():
         """
         Select FT Augmentation Scheme.
         """
-        if args.protocol in ['lp+ft','vatlp+ft','fgsmlp+ft'] and args.resume_lp_ckpt.lower() == 'none':
+        if args.protocol in ['lp+ft','vatlp+ft','fgsmlp+ft','udplp+ft'] and args.resume_lp_ckpt.lower() == 'none':
             del train_loader, test_loader, optimizer, scheduler, train_transform, test_transform
         ft_train_transform = get_transform(dataset=args.dataset, 
             SELECTED_AUG=args.ft_train_aug,
@@ -705,7 +721,7 @@ def main():
             test_transform=ft_test_transform,
             use_clip_mean=use_clip_mean) 
 
-        test_loss, test_acc = test(net, ft_test_loader)
+        _, test_acc = test(net, ft_test_loader)
         print("=> Epoch 0 Test Acc: ",test_acc)
         
         optimizer = torch.optim.SGD(
