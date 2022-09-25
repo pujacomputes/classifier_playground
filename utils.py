@@ -797,6 +797,8 @@ def arg_parser():
             "fgsmlp+ft",
             "soup-avg-lp",
             "soup-avg-lp+ft",
+            "souplp",
+            "souplp+ft",
             "udplp",
             "udplp+ft",
         ],
@@ -946,10 +948,10 @@ def arg_parser():
         help="Episilon for LP Training (Hidden Space Adv. Training!)",
     )
     parser.add_argument(
-        "--num_steps", type=int, default=20, help="How many steps for PGD Attack"
+        "--num_steps", type=int, default=10, help="How many steps for PGD Attack"
     )
     parser.add_argument(
-        "--num_cls", type=int, default=20, help="How many steps for PGD Attack"
+        "--num_cls", type=int, default=20, help="How many cls in soup"
     )
     args = parser.parse_args()
     return args

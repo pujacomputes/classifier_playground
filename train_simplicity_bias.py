@@ -1,6 +1,7 @@
 from asyncio import protocols
 import os
 import time
+from lps_utils import create_sparse_clfs, test_soup_reps
 import torch
 import timm
 import tqdm
@@ -502,7 +503,7 @@ def linear_probe_udp(args, net, train_loader, test_loader, train_aug, train_tran
     Create Representation Data Loaders
     """
     print(train_features.shape)
-    print(train_features.mean())
+    print(train_features.mean(), train_features.max(),train_features.min())
     
     rep_train_dataset = torch.utils.data.TensorDataset(
         torch.Tensor(train_features), torch.Tensor(train_labels).long()
@@ -572,18 +573,23 @@ def linear_probe_udp(args, net, train_loader, test_loader, train_aug, train_tran
                 y=target, 
                 eps=args.eps, 
                 alpha=args.alpha, 
-                attack_iters=20, 
+                attack_iters=args.num_steps, 
                 rs=False, 
                 clamp_val=None, 
                 use_alpha_scheduler=False, 
                 sample_iters='none')
             optimizer.zero_grad()
+
+            #option for a burn-in period
             clean_output = fc(data)
             adv_output = fc(data+delta)
             loss_clean = criterion(clean_output, target)
             loss_adv =  args.loss_weight * criterion(adv_output,target)
-            #print(loss_clean, loss_adv) 
+            #print(loss_clean, loss_adv)
+            # if epochs > 5: 
             loss = loss_clean + loss_adv 
+            # else:
+            #     loss = loss_clean
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -797,6 +803,208 @@ def linear_probe_vanilla(args, net, train_loader, test_loader, train_aug, train_
     }
     return net, checkpoint
 
+def linear_probe_soup(args, net, train_loader,test_loader, train_aug, train_transform):
+    net.eval()
+    print("=> Extracting Features...")
+    train_features, train_labels = extract_features(args,model=net, loader=train_loader,train_aug=train_aug,train_transform=train_transform)
+    test_features, test_labels = extract_features(args,model=net, loader=test_loader,train_aug='test',train_transform=None)
+    print(train_features.shape)
+
+    rep_train_dataset = torch.utils.data.TensorDataset(torch.Tensor(train_features),torch.Tensor(train_labels).long())
+    rep_train_dataloader = torch.utils.data.DataLoader(rep_train_dataset,batch_size=args.batch_size,shuffle=True) 
+    
+    rep_test_dataset = torch.utils.data.TensorDataset(torch.Tensor(test_features),torch.Tensor(test_labels).long())
+    rep_test_dataloader = torch.utils.data.DataLoader(rep_test_dataset,batch_size=args.batch_size,shuffle=True) 
+
+    """Get OOD Loaders"""
+    ood_dataset = blendedSTLMNIST(train=False, transform=None,use_paired=True,randomized=False)
+    ood_loader = torch.utils.data.DataLoader(
+        ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    ood_features, ood_labels = extract_features(
+        args,
+        model=net,
+        loader=ood_loader,
+        train_aug="test",
+        train_transform=train_transform,
+    ) 
+    
+    random_ood_dataset = blendedSTLMNIST(train=False, transform=None, randomized=True,use_paired=True)
+    random_ood_loader = torch.utils.data.DataLoader(
+        random_ood_dataset,
+        batch_size=args.eval_batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    rand_ood_features, rand_ood_labels = extract_features(
+        args,
+        model=net,
+        loader=random_ood_loader,
+        train_aug="test",
+        train_transform=None,
+    )
+    ood_rep_test_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(ood_features), torch.Tensor(ood_labels).long()
+    )
+    ood_rep_test_dataloader = torch.utils.data.DataLoader(
+        ood_rep_test_dataset, batch_size=args.batch_size, shuffle=True
+    )
+
+    rand_ood_rep_test_dataset = torch.utils.data.TensorDataset(
+        torch.Tensor(rand_ood_features), torch.Tensor(rand_ood_labels).long()
+    )
+    rand_ood_rep_test_dataloader = torch.utils.data.DataLoader(
+        rand_ood_rep_test_dataset, batch_size=args.batch_size, shuffle=True
+    )
+
+    """
+    Create a set of sparse, orthogonal linear probes layer.
+    We will attach it separately back.
+    """
+    classifier_pool = torch.nn.ModuleList([torch.nn.Linear(train_features.shape[1],NUM_CLASSES_DICT[args.dataset],bias=args.use_bias).to(DEVICE) for _ in range(args.num_cls)])
+    with torch.no_grad():
+        print("Pre Sparse Classifier Inits: ",[np.round(c.weight.data.norm().data.item(),4) for c in classifier_pool])
+    classifier_pool = create_sparse_clfs(classifier_pool=classifier_pool)
+    with torch.no_grad():
+        print("Sparsified: ",[np.round(c.weight.data.norm().data.item(),4) for c in classifier_pool])
+    net.module.classifier_pool = classifier_pool
+    optimizer = torch.optim.SGD(
+        net.module.classifier_pool.parameters(),
+        args.learning_rate,
+        momentum=args.momentum,
+        weight_decay=args.decay,
+        nesterov=True)
+
+    scheduler = LR_Scheduler(
+        optimizer,
+        warmup_epochs=0, warmup_lr = 0*args.batch_size/256, 
+        num_epochs=args.epochs, base_lr=args.learning_rate*args.batch_size/256, 
+        final_lr =1e-5 *args.batch_size/256, 
+        iter_per_epoch= len(train_loader),
+        constant_predictor_lr=False
+    )
+    criterion = torch.nn.CrossEntropyLoss()
+    for epochs in range(args.epochs):
+        loss_avg = 0
+        avg_val = 1 / len(net.module.classifier_pool)
+        for batch_idx, (data, target) in enumerate(rep_train_dataloader):
+            data, target = data.to(DEVICE), target.to(DEVICE)
+            optimizer.zero_grad()
+            loss = 0
+            for cls in net.module.classifier_pool:
+                # loss += avg_val * criterion(cls(data),target) 
+                loss = loss + criterion(cls(data),target) 
+            loss = loss / len(net.module.classifier_pool)  
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            loss_avg += loss 
+        _,train_acc = test_soup_reps(net, rep_train_dataloader,args) 
+        _,test_acc = test_soup_reps(net, rep_test_dataloader,args) 
+        _,ood_acc = test_soup_reps(net, ood_rep_test_dataloader,args) 
+        _, rand_ood_acc = test_soup_reps(net, rand_ood_rep_test_dataloader,args) 
+
+        print(
+            "SOUP, Epoch: {0} -- Loss: {1:.3f} -- Train Error: {2:.4f} -- Test Error: {3:.4f} -- OOD Error: {4:.4f} -- Rand OOD Error: {5:.4f} -- ".format(
+                epochs,
+                loss_avg,
+                100 - 100.0 * train_acc,
+                100 - 100.0 * test_acc,
+                100 - 100.0 * ood_acc,
+                100 - 100.0 * rand_ood_acc,
+            )
+        ) 
+    """
+    After training is complete, we are going to set the fully connected layer.
+    Right now, I am taking the average soup. But, I'll save the classifier pool
+    in the checkpoint so that other soup recipes can be applied.
+    """  
+    #make average soup.
+    print("=> Making Avg. Soup")
+    net.eval()
+    with torch.no_grad():
+        sum_weight = torch.zeros_like(net.module.classifier_pool[0].weight.data)
+        if args.use_bias:
+            bias_weight = torch.zeros_like(net.module.classifier_pool[0].bias.data)
+
+        for cls in net.module.classifier_pool:
+            sum_weight += cls.weight.data.detach().clone()
+            if args.use_bias:
+                bias_weight += cls.bias.data.detach().clone()
+        
+        sum_weight = torch.div(sum_weight, len(net.module.classifier_pool))
+        if args.use_bias:
+            bias_weight= torch.div(bias_weight, len(net.module.classifier_pool))
+
+        avg_cls = torch.nn.Linear(in_features=sum_weight.shape[0],out_features=sum_weight.shape[1],bias=args.use_bias)
+        avg_cls.weight = torch.nn.Parameter(sum_weight)
+        if args.use_bias:
+            avg_cls.bias = torch.nn.Parameter(bias_weight)
+        avg_cls.requires_grad = False  
+    """
+    Make Greedy Soup
+    """
+    # print("=> Making Greedy Soup! ")
+    # acc_list = []
+    # for classifier in net.module.classifier_pool:
+    #     net.module.fc = classifier
+    #     _, acc = test(net=net,test_loader=test_loader)
+    #     acc_list.append(np.round(acc,4))
+    # print("Accs: ",acc_list)
+    # idx = np.argsort(-1.0 * np.array(acc_list))
+    # greedy_cls = torch.nn.Linear(net.module.classifier_pool[idx[0]].weight.shape[0],classifier.weight.shape[1],bias=args.use_bias)
+    # greedy_cls.weight =  torch.nn.Parameter(net.module.classifier_pool[idx[0]].weight.data.detach().clone(),requires_grad=False) 
+    # if args.use_bias:
+    #     greedy_cls.bias =  torch.nn.Parameter(net.module.classifier_pool[idx[0]].bias.data.detach().clone(),requires_grad=False) 
+    
+    # temp_cls = torch.nn.Linear(net.module.classifier_pool[idx[0]].weight.shape[0],classifier.weight.shape[1],bias=args.use_bias)
+    # temp_cls.weight =  torch.nn.Parameter(net.module.classifier_pool[idx[0]].weight.data.detach().clone(),requires_grad=False) 
+    # if args.use_bias:
+    #     temp_cls.bias=  torch.nn.Parameter(net.module.classifier_pool[idx[0]].bias.data.detach().clone(),requires_grad=False) 
+    # curr_acc = acc_list[idx[0]]
+    # for enum,i in enumerate(idx[1:]): 
+    #     cls = net.module.classifier_pool[i]
+        
+    #     """
+    #     We are going to combine classifier_pool!
+    #     """
+    #     temp_cls.weight = torch.nn.Parameter(0.5 * (greedy_cls.weight.detach().clone() + cls.weight.detach().clone()),requires_grad=False)
+    #     if args.use_bias:
+    #         temp_cls.bias = torch.nn.Parameter(0.5 * (greedy_cls.bias.detach().clone() + cls.bias.detach().clone()),requires_grad=False)
+    #     net.module.fc = temp_cls.cuda()
+    #     _, acc = test(net=net,test_loader=test_loader)
+    #     if acc > curr_acc:
+    #         print("Adding {0} to soup -- {1:.3f}!".format(enum,curr_acc))
+    #         curr_acc = acc
+    #         greedy_cls.weight = torch.nn.Parameter(temp_cls.weight.clone().detach(),requires_grad=False)
+    #         if args.use_bias:
+    #             greedy_cls.bias = torch.nn.Parameter(temp_cls.bias.clone().detach(),requires_grad=False)
+    # net.soup_classifier = greedy_cls 
+    # net.module.fc = greedy_cls.cuda() 
+    # _,soup_acc = test(net=net,test_loader=test_loader) 
+    # print('=> Greedy Soup Acc: ',soup_acc)
+    
+    """
+    Compute acc. using forward passes.
+    """
+    net.module.fc = avg_cls.cuda()
+    _,acc = test(net=net,test_loader=test_loader)
+    print("=> Final, (Avg) Soup Acc. : {0:.4f}".format(acc))
+    checkpoint = {
+        'lp_epoch': args.epochs,
+        'dataset': args.dataset,
+        'model': args.arch,
+        'state_dict': net.state_dict(),
+        'classifier_pool': net.module.classifier_pool,
+        'best_acc': acc,
+        'protocol':'soup-avg-lp'
+    }
+    return net, checkpoint
 
 def main():
     args = arg_parser()
@@ -835,6 +1043,8 @@ def main():
         lp_aug_name = "vat-{}".format(args.alpha)
     elif "udp" in args.protocol:
         lp_aug_name = "udp-{}-{}-{}".format(args.eps, args.alpha,args.loss_weight)
+    elif "soup" in args.protocol:
+        lp_aug_name = "soup-{}".format(args.num_cls)
     else:
         lp_aug_name = args.train_aug
     dataset_name = "{}-{}".format(args.dataset, args.correlation_strength)
@@ -887,7 +1097,7 @@ def main():
     """
     lp_train_acc, lp_test_acc, lp_train_loss, lp_test_loss = -1, -1, -1, -1
     ft_train_acc, ft_test_acc, ft_train_loss, ft_test_loss = -1, -1, -1, -1
-    if args.protocol in ["lp", "lp+ft", "vatlp+ft", "vatlp","udplp", "udplp+ft"]:
+    if args.protocol in ["lp", "lp+ft", "vatlp+ft", "vatlp","udplp", "udplp+ft","souplp","souplp+ft"]:
 
         log_path = os.path.join(
             "{}/logs".format(PREFIX), "lp+" + save_name + "_training_log.csv"
@@ -937,13 +1147,18 @@ def main():
         if args.resume_lp_ckpt.lower() != "none" and args.protocol in [
             "lp+ft",
             "vatlp+ft",
-            "udplp+ft"
+            "udplp+ft",
+            "souplp+ft"
         ]:
             print()
             print("*=!" * 20)
             print("Loading Saved LP Ckpt")
             ckpt = torch.load(args.resume_lp_ckpt)
-            incomp, unexpected = net.load_state_dict(ckpt["state_dict"])
+            if "soup" in args.protocol:
+                strict =False
+            else:
+                strict=True 
+            incomp, unexpected = net.load_state_dict(ckpt["state_dict"],strict=strict)
             print("Incompatible Keys: ", incomp)
             print("Unexpected Keys: ", unexpected)
 
@@ -1019,7 +1234,37 @@ def main():
                 _, lp_train_acc = test(net, train_loader)
                 _, lp_test_acc = test(net, test_loader)
 
-            elif "vat" not in args.protocol and args.resume_lp_ckpt.lower() == "none":
+            elif "soup" in args.protocol and args.resume_lp_ckpt.lower() == "none":
+                print("=#" * 20)
+                print("SOUP LP TRAINING")
+                print("=#" * 20)
+                net = freeze_layers_for_lp(net)
+
+                """
+                Perform Linear Probe Training 
+                """
+                net, ckpt = linear_probe_soup(
+                    args,
+                    net,
+                    train_loader,
+                    test_loader,
+                    args.train_aug,
+                    train_transform=None,
+                )
+
+                """
+                Save LP Final Ckpt.
+                """
+                s = "souplp+{save_name}_final_checkpoint_{epoch:03d}_pth.tar".format(
+                    save_name=save_name, epoch=args.epochs
+                )
+                save_path = os.path.join(args.save, s)
+                torch.save(ckpt, save_path)
+
+                _, lp_train_acc = test(net, train_loader)
+                _, lp_test_acc = test(net, test_loader)
+
+            elif "vat" not in args.protocol and "soup" not in args.protocol and "udp" not in args.protocol and args.resume_lp_ckpt.lower() == "none":
                 print("=*" * 60)
                 print("STANDARD LP TRAINING")
                 print("=*" * 60)
@@ -1050,7 +1295,7 @@ def main():
     """
     Performing Fine-tuing Training!
     """
-    if args.protocol in ["lp+ft", "ft", "lpfrz+ft", "vatlp+ft","udplp+ft"]:
+    if args.protocol in ["lp+ft", "ft", "lpfrz+ft", "vatlp+ft","udplp+ft","souplp+ft"]:
         if args.protocol == "lpfrz+ft":
             print("=> Freezing Classifier, Unfreezing All Other Layers!")
             net = unfreeze_layers_for_lpfrz_ft(net)
@@ -1064,7 +1309,7 @@ def main():
         Select FT Augmentation Scheme.
         """
         if (
-            args.protocol in ["lp+ft", "vatlp+ft","udplp+ft"]
+            args.protocol in ["lp+ft", "vatlp+ft","udplp+ft","souplp+ft"]
             and args.resume_lp_ckpt.lower() == "none"
         ):
             del (

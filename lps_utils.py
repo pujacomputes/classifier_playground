@@ -376,7 +376,7 @@ def test_soup_reps(net, test_loader,args):
 
 def linear_probe_soup(args, net, train_loader,test_loader, train_aug, train_transform):
     net.eval()
-    print("=> ")
+    print("=> Extracting Features...")
     train_features, train_labels = extract_features(args,model=net, loader=train_loader,train_aug=train_aug,train_transform=train_transform)
     test_features, test_labels = extract_features(args,model=net, loader=test_loader,train_aug='test',train_transform=None)
     print(train_features.shape)
