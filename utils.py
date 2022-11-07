@@ -1,3 +1,4 @@
+from PIL import Image
 import argparse
 import random
 import numpy as np
@@ -54,6 +55,8 @@ norm_dict = {
     "clip_std": [0.26862954, 0.26130258, 0.27577711],
     "domainnet_mean": [0.485, 0.456, 0.406],  # from domainnet py
     "domainnet_std": [0.228, 0.224, 0.225],
+    "vits8-dino_mean": [0.485, 0.456, 0.406],
+    "vits8-dino_std": [0.229, 0.224, 0.225]
 }
 
 waterbirds_selector = {
@@ -91,6 +94,8 @@ def get_l2_dist(weight_dict1, weight_dict2, ignore=".fc."):
 def get_oodloader(args, dataset, use_clip_mean=False):
     if use_clip_mean:
         normalize = transforms.Normalize(norm_dict["clip_mean"], norm_dict["clip_std"])
+    elif "vits8-dino" in args.arch:
+        normalize = transforms.Normalize(norm_dict["vits8-dino_mean"], norm_dict["vits8-dino_std"])
     else:
         normalize = transforms.Normalize(
             norm_dict[args.dataset + "_mean"], norm_dict[args.dataset + "_std"]
@@ -190,6 +195,8 @@ def get_oodloader(args, dataset, use_clip_mean=False):
 def get_corrupted_loader(args, dataset, corruption_name, severity, use_clip_mean=False):
     if use_clip_mean:
         normalize = transforms.Normalize(norm_dict["clip_mean"], norm_dict["clip_std"])
+    elif "vits8-dino" in args.arch:
+        normalize = transforms.Normalize(norm_dict["vits8-dino_mean"], norm_dict["vits8-dino_std"])
     else:
         normalize = transforms.Normalize(
             norm_dict[args.dataset + "_mean"], norm_dict[args.dataset + "_std"]
@@ -261,7 +268,7 @@ def get_corrupted_loader(args, dataset, corruption_name, severity, use_clip_mean
     return ood_loader
 
 
-def get_transform(dataset, SELECTED_AUG, use_clip_mean=False):
+def get_transform(dataset, SELECTED_AUG, use_clip_mean=False,use_vit_mean=False):
     if dataset == "cifar100":
         num_classes = 100
         crop_size = 32
@@ -292,6 +299,9 @@ def get_transform(dataset, SELECTED_AUG, use_clip_mean=False):
 
     if use_clip_mean:
         normalize = transforms.Normalize(norm_dict["clip_mean"], norm_dict["clip_std"])
+    elif use_vit_mean:
+        normalize = transforms.Normalize(norm_dict["vits8-dino_mean"], norm_dict["vits8-dino_std"])
+
     else:
         normalize = transforms.Normalize(
             norm_dict[dataset + "_mean"], norm_dict[dataset + "_std"]
@@ -489,6 +499,15 @@ def get_dataloaders(
                     transforms.Normalize(norm_dict["clip_mean"], norm_dict["clip_std"]),
                 ]
             )
+        elif "vits8-dino" in args.arch:
+            normalize = transforms.Compose(
+                [
+                    transforms.Resize((224, 224)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(norm_dict["vits8-dino_mean"], norm_dict["vits8-dino_std"]),
+                ]
+            )
+
         else:
             normalize = transforms.Compose(
                 [
@@ -715,23 +734,32 @@ def test(net, test_loader, adv=None):
     )
 
 
-def freeze_layers_for_lp(model):
+def freeze_layers_for_lp(model,use_head=False):
     for name, param in model.named_parameters():
-        if "fc" not in name:
-            param.requires_grad = False
+        if use_head:
+            if "fc" not in name and "head" not in name: 
+                param.requires_grad = False
+        else:
+            if "fc" not in name:
+                param.requires_grad = False
     return model
 
 
-def unfreeze_layers_for_ft(model):
+def unfreeze_layers_for_ft(model,use_head=False):
     for param in model.parameters():
         param.requires_grad = True
     return model
 
 
-def unfreeze_layers_for_lpfrz_ft(model):
+def unfreeze_layers_for_lpfrz_ft(model,use_head=False):
     for name, param in model.named_parameters():
-        if "fc" not in name:
-            param.requires_grad = True
+        if use_head:
+            if "fc" not in name and "head" not in name: 
+                param.requires_grad = False
+        else:
+            if "fc" not in name:
+                param.requires_grad = False
+        
     return model
 
 
@@ -775,7 +803,7 @@ def arg_parser():
     )
 
     parser.add_argument(
-        "--arch", type=str, default="resnet50", choices=["resnet50", "clip-RN50"]
+        "--arch", type=str, default="resnet50", choices=["resnet50", "clip-RN50", "vits8-dino"]
     )
 
     parser.add_argument(
@@ -1224,6 +1252,7 @@ def get_calibration_loader(
     Get different CIFAR10 Calibration datasets
     """
     use_clip_mean = "clip" in args.arch
+    use_vit_mean = "vit" in args.arch
     if args.dataset == "cifar10":
         if cal_dataset == "id-c":
             """
@@ -1259,10 +1288,12 @@ def get_calibration_loader(
             )
         elif cal_dataset == "id-clean":
             train_transform = get_transform(
-                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean
+                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
+                use_vit_mean=use_vit_mean
             )
             test_transform = get_transform(
-                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean
+                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
+                use_vit_mean=use_vit_mean
             )
             _, clean_test_loader = get_dataloaders(
                 args=args,
@@ -1320,10 +1351,13 @@ def get_calibration_loader(
             corrs = CBAR_CORRUPTIONS
         elif cal_dataset == "id-clean":
             train_transform = get_transform(
-                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean
+                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
+                use_vit_mean=use_vit_mean
             )
             test_transform = get_transform(
-                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean
+                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
+                use_vit_mean=use_vit_mean
+
             )
             _, clean_test_loader = get_dataloaders(
                 args=args,
@@ -1355,10 +1389,12 @@ def get_calibration_loader(
             )
         elif cal_dataset == "id-clean":
             train_transform = get_transform(
-                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean
+                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
+                use_vit_mean=use_vit_mean
             )
             test_transform = get_transform(
-                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean
+                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
+                use_vit_mean=use_vit_mean
             )
             _, clean_test_loader = get_dataloaders(
                 args=args,
@@ -1373,7 +1409,8 @@ def get_calibration_loader(
             Get other domains ('clipart','painting','real')
             """
             clean_test_loader = get_oodloader(
-                args, dataset=cal_dataset, use_clip_mean=use_clip_mean
+                args, dataset=cal_dataset, use_clip_mean=use_clip_mean,
+                use_vit_mean=use_vit_mean
             )
     elif "living17" in args.dataset:
         """
@@ -1397,10 +1434,12 @@ def get_calibration_loader(
             )
         elif cal_dataset == "id-clean":
             train_transform = get_transform(
-                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean
+                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
+                use_vit_mean=use_vit_mean
             )
             test_transform = get_transform(
-                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean
+                dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
+                use_vit_mean=use_vit_mean
             )
             _, clean_test_loader = get_dataloaders(
                 args=args,
