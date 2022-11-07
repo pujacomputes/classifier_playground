@@ -796,6 +796,13 @@ def main():
         net = ClipModel(model_name=encoder_type, scratch=False)
         net.reset_classifier(NUM_CLASSES_DICT[args.dataset])
         net = load_dp_ckpt(net, pretrained_ckpt=args.ckpt).cuda()
+    
+    if args.arch.lower() == 'r101-1x-sk0':
+        net, _ = get_resnet(*name_to_params("r101_1x_sk0.pth")) #intentional
+        net.reset_classifier(NUM_CLASSES_DICT[args.dataset])
+        net = load_dp_ckpt(net, pretrained_ckpt=args.ckpt).cuda()
+        print("\t*** Using RN101 SimCLRv2 !!")
+    
     use_clip_mean = "clip" in args.arch
     net.eval()
     """
@@ -803,10 +810,16 @@ def main():
     """
 
     train_transform = get_transform(
-        dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean
+        dataset=args.dataset, 
+        SELECTED_AUG="test", 
+        use_clip_mean=use_clip_mean,
+        args=args
     )
     test_transform = get_transform(
-        dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean
+        dataset=args.dataset, 
+        SELECTED_AUG="test", 
+        use_clip_mean=use_clip_mean,
+        args=args
     )
     clean_train_loader, clean_test_loader = get_dataloaders(
         args=args,

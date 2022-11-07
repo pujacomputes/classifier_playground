@@ -96,6 +96,8 @@ def get_oodloader(args, dataset, use_clip_mean=False):
         normalize = transforms.Normalize(norm_dict["clip_mean"], norm_dict["clip_std"])
     elif "vits8-dino" in args.arch:
         normalize = transforms.Normalize(norm_dict["vits8-dino_mean"], norm_dict["vits8-dino_std"])
+    elif "r101-1x-sk0" in args.arch:
+        normalize = torch.nn.Identity() 
     else:
         normalize = transforms.Normalize(
             norm_dict[args.dataset + "_mean"], norm_dict[args.dataset + "_std"]
@@ -197,6 +199,8 @@ def get_corrupted_loader(args, dataset, corruption_name, severity, use_clip_mean
         normalize = transforms.Normalize(norm_dict["clip_mean"], norm_dict["clip_std"])
     elif "vits8-dino" in args.arch:
         normalize = transforms.Normalize(norm_dict["vits8-dino_mean"], norm_dict["vits8-dino_std"])
+    elif "r101-1x-sk0" in args.arch:
+        normalize = torch.nn.Identity() 
     else:
         normalize = transforms.Normalize(
             norm_dict[args.dataset + "_mean"], norm_dict[args.dataset + "_std"]
@@ -268,7 +272,7 @@ def get_corrupted_loader(args, dataset, corruption_name, severity, use_clip_mean
     return ood_loader
 
 
-def get_transform(dataset, SELECTED_AUG, use_clip_mean=False,use_vit_mean=False):
+def get_transform(dataset, SELECTED_AUG, use_clip_mean=False,use_vit_mean=False,args=None):
     if dataset == "cifar100":
         num_classes = 100
         crop_size = 32
@@ -301,7 +305,8 @@ def get_transform(dataset, SELECTED_AUG, use_clip_mean=False,use_vit_mean=False)
         normalize = transforms.Normalize(norm_dict["clip_mean"], norm_dict["clip_std"])
     elif use_vit_mean:
         normalize = transforms.Normalize(norm_dict["vits8-dino_mean"], norm_dict["vits8-dino_std"])
-
+    elif args is not None and "101" in args.arch:
+        normalize = torch.nn.Identity() #we just convert to tensor for SimCLRv2
     else:
         normalize = transforms.Normalize(
             norm_dict[dataset + "_mean"], norm_dict[dataset + "_std"]
@@ -505,6 +510,13 @@ def get_dataloaders(
                     transforms.Resize((224, 224)),
                     transforms.ToTensor(),
                     transforms.Normalize(norm_dict["vits8-dino_mean"], norm_dict["vits8-dino_std"]),
+                ]
+            )
+        elif "101" in args.arch:
+            normalize = transforms.Compose(
+                [
+                    transforms.Resize((224, 224)),
+                    transforms.ToTensor(),
                 ]
             )
 
@@ -803,7 +815,7 @@ def arg_parser():
     )
 
     parser.add_argument(
-        "--arch", type=str, default="resnet50", choices=["resnet50", "clip-RN50", "vits8-dino"]
+        "--arch", type=str, default="resnet50", choices=["resnet50", "clip-RN50", "vits8-dino","r101-1x-sk0"]
     )
 
     parser.add_argument(
@@ -1289,11 +1301,13 @@ def get_calibration_loader(
         elif cal_dataset == "id-clean":
             train_transform = get_transform(
                 dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
-                use_vit_mean=use_vit_mean
+                use_vit_mean=use_vit_mean,
+                args=args
             )
             test_transform = get_transform(
                 dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
-                use_vit_mean=use_vit_mean
+                use_vit_mean=use_vit_mean,
+                args=args
             )
             _, clean_test_loader = get_dataloaders(
                 args=args,
@@ -1352,11 +1366,13 @@ def get_calibration_loader(
         elif cal_dataset == "id-clean":
             train_transform = get_transform(
                 dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
-                use_vit_mean=use_vit_mean
+                use_vit_mean=use_vit_mean,
+                args=args
             )
             test_transform = get_transform(
                 dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
-                use_vit_mean=use_vit_mean
+                use_vit_mean=use_vit_mean,
+                args=args
 
             )
             _, clean_test_loader = get_dataloaders(
@@ -1390,11 +1406,13 @@ def get_calibration_loader(
         elif cal_dataset == "id-clean":
             train_transform = get_transform(
                 dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
-                use_vit_mean=use_vit_mean
+                use_vit_mean=use_vit_mean,
+                args=args
             )
             test_transform = get_transform(
                 dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
-                use_vit_mean=use_vit_mean
+                use_vit_mean=use_vit_mean,
+                args=args
             )
             _, clean_test_loader = get_dataloaders(
                 args=args,
@@ -1435,11 +1453,13 @@ def get_calibration_loader(
         elif cal_dataset == "id-clean":
             train_transform = get_transform(
                 dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
-                use_vit_mean=use_vit_mean
+                use_vit_mean=use_vit_mean,
+                args=args
             )
             test_transform = get_transform(
                 dataset=args.dataset, SELECTED_AUG="test", use_clip_mean=use_clip_mean,
-                use_vit_mean=use_vit_mean
+                use_vit_mean=use_vit_mean,
+                args=args
             )
             _, clean_test_loader = get_dataloaders(
                 args=args,

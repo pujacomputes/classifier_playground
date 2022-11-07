@@ -2,6 +2,7 @@ from asyncio import protocols
 import os
 import time
 from lps_utils import create_sparse_clfs, test_soup_reps
+from simclr_resnet import get_resnet, name_to_params
 import torch
 import timm
 import tqdm 
@@ -61,7 +62,7 @@ def train_loop(args,protocol,save_name,log_path, net, optimizer,scheduler,start_
         else:
             net.train()
         loss_ema = 0.
-        for (images, targets) in tqdm.tqdm(train_loader,disable=False):
+        for (images, targets) in tqdm.tqdm(train_loader,disable=True):
             optimizer.zero_grad()
             images = images.to(DEVICE)
             targets = targets.to(DEVICE)
@@ -141,7 +142,7 @@ def extract_features(args, model,loader,train_aug,train_transform):
     labels = []
     model.eval()
     with torch.no_grad():
-        for data, targets in tqdm.tqdm(loader,disable=True):
+        for data, targets in tqdm.tqdm(loader,disable=False):
             data = data.cuda()
             if transform:
                 if train_aug in ['cutmix','mixup']:
@@ -153,6 +154,11 @@ def extract_features(args, model,loader,train_aug,train_transform):
                 reps = torch.nn.functional.adaptive_avg_pool2d(model.module.forward_features(data),1)
                 features.append(reps.detach().cpu().numpy())
                 labels.append(targets.detach().cpu().numpy())
+            if args.arch == 'r101-1x-sk0':
+                #using a timm model. called the
+                reps = model.module.forward_features(data) 
+                features.append(reps.detach().cpu().numpy())
+                labels.append(targets.detach().cpu().numpy())
             if "clip" in args.arch:
                 #using a timm model. called the
                 reps = model.module.get_features(data)
@@ -162,7 +168,8 @@ def extract_features(args, model,loader,train_aug,train_transform):
             if "vit" in args.arch:
                 #using a timm model. called the
                 feats = model.module.forward_features(data)
-                reps = model.module.forward_head(data,pre_logits=True)
+                reps = model.module.forward_head(feats,pre_logits=True)
+                # print(reps.shape)
                 features.append(reps.detach().cpu().numpy())
                 labels.append(targets.detach().cpu().numpy())
 
@@ -236,7 +243,10 @@ def linear_probe_vat(args, net, train_loader,test_loader, train_aug, train_trans
         loss_avg /= len(rep_train_dataloader) 
         print("Epoch: {4} -- VAT: {0:.4f} -- Con: {1:.4f} -- Tot.:{2:.4f} -- Train Acc: {3:.4f} -- Test Acc: {5:.4f}".format(vat_avg,consistency_loss_avg,loss_avg,train_acc,epochs,val_acc))
     #Set the classifier weights
-    net.module.fc = fc 
+    if "vit" in args.arch:
+        net.module.head = fc 
+    else:
+        net.module.fc = fc 
    
     """
     Compute acc. using forward passes.
@@ -305,7 +315,10 @@ def linear_probe_fgsm(args, net, train_loader,test_loader, train_aug, train_tran
         
         print("Epoch: {0} -- Loss: {1:.4f} -- Train Acc: {2:.4f} -- Test Acc: {3:.4f}".format(epochs,loss_avg,train_acc,test_acc))
     #Set the classifier weights
-    net.module.fc = fc 
+    if "vit" in args.arch:
+        net.module.head = fc 
+    else:
+        net.module.fc = fc 
    
     """
     Compute acc. using forward passes.
@@ -429,8 +442,10 @@ def linear_probe_udp(args, net, train_loader, test_loader, train_aug, train_tran
             )
         )
     # Set the classifier weights
-    net.module.fc = fc
-
+    if "vit" in args.arch:
+        net.module.head = fc 
+    else:
+        net.module.fc = fc 
     """
     Compute acc. using forward passes.
     """
@@ -548,7 +563,10 @@ def linear_probe_soup(args, net, train_loader,test_loader, train_aug, train_tran
     """
     Compute acc. using forward passes.
     """
-    net.module.fc = avg_cls.cuda()
+    if "vit" in args.arch:
+        net.module.head = avg_cls.cuda() 
+    else:
+        net.module.fc = avg_cls.cuda() 
     _,acc = test(net=net,test_loader=test_loader)
     print("=> Final, (Avg) Soup Acc. : {0:.4f}".format(acc))
     checkpoint = {
@@ -600,6 +618,10 @@ def main():
             #net = torch.hub.load('facebookresearch/dino:main', 'dino_vits8',force_reload=True)
             # net = torch.hub.load("/p/lustre1/trivedi1/compnets/dino", 'dino_vits8',force_reload=False, source='local')
             net = timm.create_model('vit_small_patch8_224_dino', pretrained=True) 
+        if args.arch.lower() == 'r101-1x-sk0':
+            net, _ = get_resnet(*name_to_params("r101_1x_sk0.pth")) #intentional
+            net.load_state_dict(torch.load("/p/lustre1/trivedi1/compnets/SimCLRv2-Pytorch/r101_1x_sk0.pth")['resnet']) 
+            print("\t*** Using RN101 SimCLRv2 !!")
     use_clip_mean = "clip" in args.arch 
     use_vit_mean = "vit" in args.arch 
     if "vat" in args.protocol:
@@ -655,8 +677,16 @@ def main():
         """
         Select Augmentation Scheme.
         """
-        train_transform = get_transform(dataset=args.dataset, SELECTED_AUG=args.train_aug,use_clip_mean=use_clip_mean,use_vit_mean=use_vit_mean) 
-        test_transform = get_transform(dataset=args.dataset, SELECTED_AUG=args.test_aug,use_clip_mean=use_clip_mean,use_vit_mean=use_vit_mean) 
+        train_transform = get_transform(dataset=args.dataset, 
+            SELECTED_AUG=args.train_aug,
+            use_clip_mean=use_clip_mean,
+            use_vit_mean=use_vit_mean,
+            args=args) 
+        test_transform = get_transform(dataset=args.dataset, 
+            SELECTED_AUG=args.test_aug,
+            use_clip_mean=use_clip_mean,
+            use_vit_mean=use_vit_mean,
+            args=args) 
         train_loader, test_loader = get_dataloaders(args=args, 
             train_aug=args.train_aug,
             test_aug=args.test_aug, 
@@ -865,12 +895,14 @@ def main():
         ft_train_transform = get_transform(dataset=args.dataset, 
             SELECTED_AUG=args.ft_train_aug,
             use_clip_mean=use_clip_mean,
-            use_vit_mean=use_vit_mean)
+            use_vit_mean=use_vit_mean,
+            args=args)
 
         ft_test_transform = get_transform(dataset=args.dataset, 
             SELECTED_AUG=args.ft_test_aug,
             use_clip_mean=use_clip_mean,
-            use_vit_mean=use_vit_mean)
+            use_vit_mean=use_vit_mean,
+            args=args)
              
         ft_train_loader, ft_test_loader = get_dataloaders(args=args, 
             train_aug=args.ft_train_aug,
@@ -925,6 +957,7 @@ def main():
     """
     Perform ID + OOD Evaluation!
     """
+    print("=> Begin Final Evaluation")
     ood_loader = get_oodloader(args=args,dataset=args.eval_dataset,use_clip_mean=use_clip_mean)
     if ood_loader:
         ood_loss, ood_acc = test(net, ood_loader)

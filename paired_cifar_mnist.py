@@ -8,7 +8,7 @@ import time
 import torch.nn.functional as F
 import pdb
 class pairedCIFARMNIST(torch.utils.data.Dataset):
-    def __init__(self, train=True, transform=None,randomized=False):
+    def __init__(self, train=True, transform=None,randomized=False,correlation_strength=0.9,return_simple_label=False):
         if train:
             cifar_train_bool = True
             mnist_train_bool = True
@@ -25,12 +25,14 @@ class pairedCIFARMNIST(torch.utils.data.Dataset):
                                                         transform = None)
         self.randomized = randomized
         print(len(self.cifar10_dataset),len(self.mnist_dataset))
+        self.correlation_strength = correlation_strength
         self.mapper_dict = self.make_cifar_mnist_dict()
         self.transform = transform
         self.pad_mnist = transforms.Pad(2)
         self.normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.228, 0.224, 0.225])
         self.to_tensor = transforms.ToTensor()
-    
+        self.resize = transforms.Resize((224,224))
+        self.return_simple_label = return_simple_label 
     def make_cifar_mnist_dict(self):
         mapper_dict = {}
         if self.randomized:
@@ -49,6 +51,15 @@ class pairedCIFARMNIST(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.cifar10_dataset)
+    def make_paired(self,cifar_image,mnist_image):
+        mnist_image = self.pad_mnist(mnist_image)
+        mnist_image = self.to_tensor(mnist_image)
+        mnist_image = mnist_image.repeat(3,1,1) 
+
+        cifar_image = self.to_tensor(cifar_image)
+        cifar_image = torch.cat([cifar_image,mnist_image],dim=1)
+        return cifar_image
+
     def __getitem__(self,idx):
         sample, label = self.cifar10_dataset[idx]
         #get a MNIST sample that shares the class

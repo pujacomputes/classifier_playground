@@ -606,17 +606,44 @@ def main():
     """
     Create Dataloader 1
     """
-    test_dataset = blendedCIFARMNIST(
-            train=False,
-            randomized=False,
-            correlation_strength=args.correlation_strength)
-    d1_test_loader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True,
-    )
+    if args.dataset == "blendedCIFAR":
+        test_dataset = blendedCIFARMNIST(
+                train=False,
+                randomized=False,
+                correlation_strength=args.correlation_strength)
+        d1_test_loader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True,
+        )
+    elif args.dataset == 'blendedSTL': 
+        test_dataset = blendedSTLMNIST(
+                train=False,
+                randomized=False,
+                correlation_strength=args.correlation_strength)
+        d1_test_loader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True,
+        )
+    elif args.dataset == 'randSTL': 
+        test_dataset = blendedSTLMNIST(
+                train=False,
+                randomized=True,
+                correlation_strength=args.correlation_strength)
+        d1_test_loader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True,
+        )
+    else:
+        print("ERROR ERROR ERROR!")
     """
     Create (optional) Dataloader 2
     """
